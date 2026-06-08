@@ -9,7 +9,7 @@ source.include_exts = py,png,jpg,kv,atlas,json,wav,ttf,otf
 version = 1.0
 
 # ── 依赖 ──────────────────────────────────────────
-requirements = python3==3.10,kivy
+requirements = python3,kivy
 
 # ── 屏幕方向 ──────────────────────────────────────
 orientation = portrait
