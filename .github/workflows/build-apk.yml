@@ -43,7 +43,11 @@ jobs:
 
       - name: Build APK
         working-directory: android_pomodoro
-        run: buildozer android debug
+        run: |
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version
+          buildozer android debug 2>&1
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
