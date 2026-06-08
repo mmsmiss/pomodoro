@@ -9,7 +9,10 @@ source.include_exts = py,png,jpg,kv,atlas,json,wav,ttf,otf
 version = 1.0
 
 # ── 依赖 ──────────────────────────────────────────
-requirements = python3==3.11.9,kivy
+requirements = python3,kivy
+
+# ── p4a 配置 ───────────────────────────────────────
+p4a.branch = develop
 
 # ── 屏幕方向 ──────────────────────────────────────
 orientation = portrait
