@@ -27,6 +27,7 @@ android.permissions = VIBRATE,WAKE_LOCK,POST_NOTIFICATIONS
 android.api = 33
 android.minapi = 24
 android.ndk = 25b
+android.accept_sdk_license = True
 
 # ── 启动画面 ──────────────────────────────────────
 # (可选) 放置 splash.png 在此目录即可自动使用
