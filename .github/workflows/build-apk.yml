@@ -1,0 +1,50 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [master, main]
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            git zip unzip openjdk-17-jdk-headless \
+            autoconf libtool pkg-config zlib1g-dev \
+            libncurses5-dev libncursesw5-dev cmake \
+            libffi-dev libssl-dev libltdl-dev
+
+      - name: Install buildozer
+        run: pip install buildozer cython
+
+      - name: Cache Android SDK/NDK
+        uses: actions/cache@v4
+        id: cache-android
+        with:
+          path: ~/.buildozer
+          key: android-sdk-${{ hashFiles('android_pomodoro/buildozer.spec') }}
+          restore-keys: |
+            android-sdk-
+
+      - name: Build APK
+        working-directory: android_pomodoro
+        run: buildozer android debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pomodoro-apk
+          path: android_pomodoro/bin/*.apk
