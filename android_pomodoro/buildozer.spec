@@ -40,7 +40,7 @@ log_level = 2
 android.allow_download_in_build_dir = True
 
 # ── 应用架构 ──────────────────────────────────────
-android.arch = arm64-v8a
+android.archs = arm64-v8a
 
 # ── 签名（发布用） ────────────────────────────────
 # release = 1 时取消注释下面两行并填写

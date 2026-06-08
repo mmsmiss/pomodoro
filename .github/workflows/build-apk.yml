@@ -47,7 +47,7 @@ jobs:
           export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
           echo "JAVA_HOME=$JAVA_HOME"
           java -version 2>&1
-          buildozer android debug
+          yes | buildozer android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
