@@ -9,7 +9,7 @@ source.include_exts = py,png,jpg,kv,atlas,json,wav,ttf,otf
 version = 1.0
 
 # ── 依赖 ──────────────────────────────────────────
-requirements = python3,kivy
+requirements = python3,kivy,android,pyjnius
 
 # ── 屏幕方向 ──────────────────────────────────────
 orientation = portrait
@@ -52,3 +52,4 @@ android.archs = arm64-v8a
 # ── 构建工具 ──────────────────────────────────────
 log_level = 2
 warn_on_root = 1
+p4a.branch = develop
