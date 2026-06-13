@@ -163,6 +163,9 @@ input[type=file]{display:none}
         <div class="mic-hint" id="micHint">点击开始录音</div>
       </div>
       <canvas class="wave-canvas" id="waveCanvas" width="360" height="70"></canvas>
+      <div style="display:flex;align-items:center;gap:4px;margin:-2px 0 4px 0;font-size:10px;color:#6a6a88;justify-content:center">
+        🔊 声纹实时分析 — 录音时显示声音频率波动
+      </div>
       <div class="audio-row" id="audioRow" style="display:none">
         <button class="btn-play" id="playBtn">▶️ 回放</button>
         <button class="btn-play" id="downloadBtn" style="background:#f4a460;color:#1a1a2e">📥 下载</button>
@@ -188,9 +191,10 @@ input[type=file]{display:none}
       </div>
       <div class="audio-row">
         <button class="btn btn-primary" onclick="pickPhoto()">📷 拍照</button>
-        <button class="btn btn-secondary" onclick="document.getElementById('photoFileInput').click()">🖼️ 相册</button>
+        <button class="btn btn-secondary" onclick="pickGallery()">🖼️ 相册</button>
       </div>
-      <input type="file" id="photoFileInput" accept="image/*">
+      <input type="file" id="cameraInput" accept="image/*" capture="environment">
+      <input type="file" id="galleryInput" accept="image/*">
       <button class="btn btn-primary" id="analyzeBtn" disabled>🔍 识别品种</button>
       <div id="breedResults"></div>
     </div>
@@ -258,7 +262,7 @@ input[type=file]{display:none}
 
 // ── 常量 ──
 var SAMPLE_RATE = 44100;
-var MAX_SEC = 8;
+var MAX_SEC = 5;
 
 // ── 基于声学研究的猫叫声情绪模型 ──
 // 参考文献: Nicastro & Owren (2003), Yeon et al. (2011), Schötz et al. (2012-2019)
@@ -998,14 +1002,18 @@ function handlePhoto(file){
   };
   r.readAsDataURL(file);
 }
-document.getElementById('photoFileInput').onchange=function(e){handlePhoto(e.target.files[0])};
+// Camera input (capture=environment → opens camera on mobile)
+document.getElementById('cameraInput').onchange=function(e){handlePhoto(e.target.files[0])};
+// Gallery input (no capture → opens gallery/file picker)
+document.getElementById('galleryInput').onchange=function(e){handlePhoto(e.target.files[0])};
 
-// Camera — try native camera on mobile, fallback to file picker on desktop
+// Open camera (capture=environment triggers native camera app)
 function pickPhoto(){
-  var inp=document.getElementById('photoFileInput');
-  // Remove any capture attribute, let browser decide
-  // Mobile browsers (Chrome/Safari) will offer camera option for accept=image/*
-  inp.click();
+  document.getElementById('cameraInput').click();
+}
+// Open gallery (no capture attribute → launches photo picker)
+function pickGallery(){
+  document.getElementById('galleryInput').click();
 }
 document.getElementById('analyzeBtn').onclick=analyzeBreed;
 
