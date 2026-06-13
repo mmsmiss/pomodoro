@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       ANDROID_SDK_ROOT: /home/runner/android-sdk
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout code
@@ -76,17 +77,16 @@ jobs:
         env:
           ANDROID_HOME: /home/runner/android-sdk
         run: |
-          # Tell Gradle where the SDK is
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          # Debug: show what we have
-          echo "=== SDK contents ==="
-          ls "$ANDROID_HOME/platforms/" 2>/dev/null || echo "no platforms"
-          ls "$ANDROID_HOME/build-tools/" 2>/dev/null || echo "no build-tools"
-          echo "=== Starting Gradle build ==="
-          gradle assembleDebug --info 2>&1 | tail -200
+          gradle assembleDebug 2>&1 | tail -80
+          echo "=== Looking for APK ==="
+          find . -name "*.apk" 2>/dev/null || echo "No APK found!"
+          echo "=== Build output tree ==="
+          find app/build -type f 2>/dev/null | head -30 || echo "No build output"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: pomodoro-apk
-          path: apk/app/build/outputs/apk/debug/*.apk
+          path: |
+            apk/**/*.apk
