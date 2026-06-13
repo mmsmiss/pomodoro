@@ -66,10 +66,7 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                Log.e(TAG, "WebView error: " + errorCode + " " + description);
-                // Show error page
-                view.loadUrl("javascript:document.body.innerHTML='<div style=padding:40px;text-align:center;color:#ff6b6b;font-size:16px>' +
-                    '⚠️ 加载失败<br><small>' + description.replace(/'/g, '') + '</small></div>'");
+                Log.e(TAG, "WebView error: " + errorCode + " - " + description);
             }
 
             @Override
