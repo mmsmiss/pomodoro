@@ -31,7 +31,7 @@ jobs:
         id: cache-sdk
         with:
           path: /home/runner/android-sdk
-          key: android-sdk-v3-${{ runner.os }}
+          key: android-sdk-v4-${{ runner.os }}
 
       - name: Download Android command-line tools
         if: steps.cache-sdk.outputs.cache-hit != 'true'
@@ -65,9 +65,9 @@ jobs:
       - name: Download Gradle 8.5
         run: |
           cd /tmp
-          curl -sSLO https://services.gradle.org/distributions/gradle-8.5-bin.zip
-          unzip -q gradle-8.5-bin.zip
-          echo "/tmp/gradle-8.5/bin" >> $GITHUB_PATH
+          curl -sSLO https://services.gradle.org/distributions/gradle-8.4-bin.zip
+          unzip -q gradle-8.4-bin.zip
+          echo "/tmp/gradle-8.4/bin" >> $GITHUB_PATH
 
       - name: Copy pomodoro.html into assets
         run: |
@@ -82,7 +82,7 @@ jobs:
           ANDROID_HOME: /home/runner/android-sdk
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          gradle assembleDebug 2>&1
+          gradle assembleDebug --stacktrace --no-daemon 2>&1
 
       - name: Find APK
         run: |
