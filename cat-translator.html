@@ -174,15 +174,22 @@ body {
 
 /* Breed grid */
 .breed-grid {
-  display:grid; grid-template-columns:repeat(2,1fr); gap:8px;
+  display:grid; grid-template-columns:repeat(2,1fr); gap:10px;
 }
 .breed-chip {
-  background:var(--surface); border-radius:10px; padding:10px;
-  text-align:center; cursor:pointer; transition:background 0.2s;
-  font-size:12px;
+  background:var(--surface); border-radius:12px; overflow:hidden;
+  cursor:pointer; transition:transform 0.15s,box-shadow 0.15s;
+  font-size:11px; text-align:center;
+  box-shadow:0 2px 8px rgba(0,0,0,0.2);
 }
-.breed-chip:active { background:var(--orange); color:#1a1a2e; }
-.breed-chip .emoji { font-size:28px; display:block; margin-bottom:4px; }
+.breed-chip:active { transform:scale(0.96); box-shadow:0 4px 16px rgba(0,0,0,0.3); }
+.breed-chip .photo {
+  width:100%; height:110px; object-fit:cover; display:block;
+  background:var(--bg);
+}
+.breed-chip .label {
+  padding:8px 6px; font-weight:600; color:var(--text);
+}
 
 /* Loading spinner */
 .spinner {
@@ -343,27 +350,64 @@ const EMOTIONS = [
     zcr:'low', energy:'high', harmonic:true },
 ];
 
+  // Generate thumbnail URL (no HTML, just the URL string)
+  function breedPhotoUrl(name) {
+    const photoMap = {
+      '中华田园猫':   'Dragon_Li_-_Li_Hua_Mau2.jpg',
+      '暹罗猫':       'Siam_lilacpoint.jpg',
+      '波斯猫':       'White_Persian_Cat.jpg',
+      '英短':         'British_Shorthair,_Classic_Tabby.jpg',
+      '布偶猫':       'Ragdoll_from_Gatil_Ragbelas.jpg',
+      '美短':         'American_Shorthair.jpg',
+      '缅因猫':       'Maine_Coon_cat_by_Tomitheos.JPG',
+      '斯芬克斯猫':   'Sphinx2_July_2006.jpg',
+      '苏格兰折耳':   'Adult_Scottish_Fold.jpg',
+      '孟加拉猫':     'Bengal_Cat_(Fia).jpg',
+      '橘猫':         'Orange_tabby_cat_sitting_on_fallen_leaves-Hisashi-01A.jpg',
+      '黑猫':         'Black_cat_-_Ehemaliges_Streunerkatze_aus_Bukarest.jpg',
+      '奶牛猫':       'Tuxedo_cat_2013-05-23.jpg',
+      '三花猫':       'Calico_cat_-_Phoebe.jpg',
+      '俄罗斯蓝猫':   'Russian_Blue.jpg',
+      '挪威森林猫':   'Norwegian_forest_cat_in_snow.jpg',
+      '阿比西尼亚猫': 'Abyssinian_cat.jpg',
+      '东方短毛猫':   'Oriental_shorthair_20090530.jpg',
+      '土耳其梵猫':   'Turkish_Van_Cat.jpg',
+      '德文卷毛猫':   'Devon_Rex_Cat.jpg',
+    };
+    const baseFile = photoMap[name];
+    if (!baseFile) return '';
+    const rawUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/' + baseFile + '/200px-' + baseFile;
+    const encoded = encodeURIComponent(rawUrl);
+    // weserv.nl image proxy: resizes + caches, ~15-30KB per photo
+    return 'https://images.weserv.nl/?url=' + encoded + '&w=300&h=220&fit=cover&output=jpg&q=65';
+  }
+  function breedPhoto(name, fallbackEmoji) {
+    const url = breedPhotoUrl(name);
+    if (!url) return fallbackEmoji;
+    return '<img src="' + url + '" loading="lazy" alt="' + name + '" onerror="this.parentElement.innerHTML=\'' + fallbackEmoji + '\'">';
+  }
+
 const CAT_BREEDS = [
-  { emoji:'🐱', name:'中华田园猫', traits:'适应力强，叫声多样', vocal:'中频，变化丰富' },
-  { emoji:'😺', name:'暹罗猫', traits:'社交强，话多爱叫', vocal:'高频，响亮，频繁' },
-  { emoji:'🐈', name:'波斯猫', traits:'安静温和，少叫', vocal:'低频，轻柔，偶尔' },
-  { emoji:'😸', name:'英短', traits:'沉稳独立', vocal:'中低频，温和' },
-  { emoji:'😻', name:'布偶猫', traits:'粘人温顺', vocal:'轻柔，中低频' },
-  { emoji:'😽', name:'美短', traits:'活泼好奇', vocal:'中频，不高不低' },
-  { emoji:'😼', name:'缅因猫', traits:'体型大，温和', vocal:'低频，咕噜声大' },
-  { emoji:'🙀', name:'斯芬克斯猫', traits:'无毛，粘人', vocal:'中高频，爱交流' },
-  { emoji:'😿', name:'苏格兰折耳', traits:'安静温柔', vocal:'很低频，咕噜为主' },
-  { emoji:'😾', name:'孟加拉猫', traits:'活力充沛', vocal:'中频，偶尔嚎叫' },
-  { emoji:'🐱‍👤', name:'橘猫', traits:'贪吃温顺', vocal:'求食叫声频繁' },
-  { emoji:'🐱‍🐉', name:'黑猫', traits:'聪明独立', vocal:'中低频' },
-  { emoji:'🐱‍👓', name:'奶牛猫', traits:'活泼好动', vocal:'中频，爱叫' },
-  { emoji:'🐱‍🚀', name:'三花猫', traits:'温顺亲人', vocal:'中频柔和' },
-  { emoji:'🐱‍🏍', name:'俄罗斯蓝猫', traits:'安静害羞', vocal:'很轻，少叫' },
-  { emoji:'🐅', name:'挪威森林猫', traits:'独立安静', vocal:'低频咕噜' },
-  { emoji:'🦁', name:'阿比西尼亚猫', traits:'好奇活跃', vocal:'中频，咕噜多' },
-  { emoji:'🐆', name:'东方短毛猫', traits:'社交话多', vocal:'高频响亮' },
-  { emoji:'🐯', name:'土耳其梵猫', traits:'爱玩水', vocal:'中频' },
-  { emoji:'🐈‍⬛', name:'德文卷毛猫', traits:'粘人活泼', vocal:'中高频' },
+  { name:'中华田园猫', traits:'适应力强，叫声多样', vocal:'中频，变化丰富' },
+  { name:'暹罗猫', traits:'社交强，话多爱叫', vocal:'高频，响亮，频繁' },
+  { name:'波斯猫', traits:'安静温和，少叫', vocal:'低频，轻柔，偶尔' },
+  { name:'英短', traits:'沉稳独立', vocal:'中低频，温和' },
+  { name:'布偶猫', traits:'粘人温顺', vocal:'轻柔，中低频' },
+  { name:'美短', traits:'活泼好奇', vocal:'中频，不高不低' },
+  { name:'缅因猫', traits:'体型大，温和', vocal:'低频，咕噜声大' },
+  { name:'斯芬克斯猫', traits:'无毛，粘人', vocal:'中高频，爱交流' },
+  { name:'苏格兰折耳', traits:'安静温柔', vocal:'很低频，咕噜为主' },
+  { name:'孟加拉猫', traits:'活力充沛', vocal:'中频，偶尔嚎叫' },
+  { name:'橘猫', traits:'贪吃温顺', vocal:'求食叫声频繁' },
+  { name:'黑猫', traits:'聪明独立', vocal:'中低频' },
+  { name:'奶牛猫', traits:'活泼好动', vocal:'中频，爱叫' },
+  { name:'三花猫', traits:'温顺亲人', vocal:'中频柔和' },
+  { name:'俄罗斯蓝猫', traits:'安静害羞', vocal:'很轻，少叫' },
+  { name:'挪威森林猫', traits:'独立安静', vocal:'低频咕噜' },
+  { name:'阿比西尼亚猫', traits:'好奇活跃', vocal:'中频，咕噜多' },
+  { name:'东方短毛猫', traits:'社交话多', vocal:'高频响亮' },
+  { name:'土耳其梵猫', traits:'爱玩水', vocal:'中频' },
+  { name:'德文卷毛猫', traits:'粘人活泼', vocal:'中高频' },
 ];
 
 // ── 状态 ──────────────────────────────────────────
@@ -933,15 +977,17 @@ async function analyzeBreed() {
 
     // Find breed info from our database
     const breedNames = displayResults.map(r => {
-      const match = CAT_BREEDS.find(b => r.name.includes(b.name));
-      return match || { traits: '聪明可爱的猫咪', vocal: '叫声因猫而异' };
+      const match = CAT_BREEDS.find(b => r.name.includes(b.name) || (b.name && r.name && r.name.includes(b.name.substring(0, 2))));
+      return match || { name: r.name, traits: '聪明可爱的猫咪', vocal: '叫声因猫而异' };
     });
 
     document.getElementById('breedResults').innerHTML = `
       <div style="margin-top:8px;font-size:13px;color:var(--sub)">📸 品种识别结果</div>
       ${displayResults.map((r, i) => `
         <div class="result-item">
-          <div class="result-emoji">${r.emoji}</div>
+          <div style="min-width:60px;height:60px;border-radius:10px;overflow:hidden;flex-shrink:0;background:var(--surface)">
+            ${breedPhoto(breedNames[i]?.name || '猫', '🐱')}
+          </div>
           <div class="result-info">
             <div class="result-name">${r.name}</div>
             <div class="result-desc">性格：${breedNames[i]?.traits || ''} | 叫声：${breedNames[i]?.vocal || ''}</div>
@@ -1036,11 +1082,30 @@ async function deleteCat(id) {
 function renderBreedGrid() {
   const grid = document.getElementById('breedGrid');
   grid.innerHTML = CAT_BREEDS.map(b => `
-    <div class="breed-chip" onclick="showToast('${b.name}：${b.traits}')">
-      <span class="emoji">${b.emoji}</span>
-      ${b.name}
+    <div class="breed-chip" onclick="showBreedDetail('${b.name}')">
+      <img class="photo" src="${breedPhotoUrl(b.name)}" alt="${b.name}" loading="lazy"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="label">${b.name}</div>
     </div>
   `).join('');
+}
+
+function showBreedDetail(name) {
+  const breed = CAT_BREEDS.find(b => b.name === name);
+  if (!breed) return;
+  const url = breedPhotoUrl(name);
+  showModal(`
+    <div style="text-align:center">
+      <div style="width:100%;height:200px;overflow:hidden;border-radius:12px;margin-bottom:12px;
+                  background:var(--surface);display:flex;align-items:center;justify-content:center">
+        <img src="${url}" alt="${name}" style="width:100%;height:100%;object-fit:cover"
+             onerror="this.parentElement.innerHTML='<span style=font-size:64px>🐱</span>'">
+      </div>
+      <h3 style="margin:8px 0">${name}</h3>
+      <div style="font-size:13px;color:var(--sub);margin:4px 0">性格：${breed.traits}</div>
+      <div style="font-size:13px;color:var(--sub);margin:4px 0">叫声：${breed.vocal}</div>
+    </div>
+  `);
 }
 
 // ── 猫咪列表 ──────────────────────────────────────
