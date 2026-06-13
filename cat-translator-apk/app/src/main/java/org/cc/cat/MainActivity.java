@@ -7,7 +7,6 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.Window;
 import android.view.WindowManager;
@@ -17,14 +16,15 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebSettings;
 import android.webkit.PermissionRequest;
+import android.webkit.ConsoleMessage;
+import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 public class MainActivity extends Activity {
 
-    private static final int REQUEST_CAMERA = 1001;
-    private static final int REQUEST_AUDIO = 1002;
+    private static final String TAG = "CatTranslator";
     private static final int REQUEST_ALL = 1003;
     private static final int FILECHOOSER_RESULTCODE = 2001;
 
@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Log.d(TAG, "onCreate");
 
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(
@@ -50,37 +51,57 @@ public class MainActivity extends Activity {
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(true);
-        ws.setMediaPlaybackRequiresUserGesture(false);
         ws.setAllowContentAccess(true);
+        ws.setMediaPlaybackRequiresUserGesture(false);
         ws.setDatabaseEnabled(true);
         ws.setGeolocationEnabled(false);
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
+        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        webView.setWebViewClient(new WebViewClient());
+        // Enable remote debugging (Chrome inspect)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
 
-        // WebChromeClient: handles file picker (camera/gallery) + permission requests + getUserMedia
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                Log.e(TAG, "WebView error: " + errorCode + " " + description);
+                // Show error page
+                view.loadUrl("javascript:document.body.innerHTML='<div style=padding:40px;text-align:center;color:#ff6b6b;font-size:16px>' +
+                    '⚠️ 加载失败<br><small>' + description.replace(/'/g, '') + '</small></div>'");
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                Log.d(TAG, "Page loaded: " + url);
+            }
+        });
+
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback,
                                              FileChooserParams fileChooserParams) {
+                Log.d(TAG, "onShowFileChooser called");
                 if (filePathCallback != null) {
                     filePathCallback.onReceiveValue(null);
                     filePathCallback = null;
                 }
                 filePathCallback = callback;
 
-                Intent intent = fileChooserParams.createIntent();
-                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
                 try {
+                    Intent intent = fileChooserParams.createIntent();
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
                     startActivityForResult(Intent.createChooser(intent, "选择照片"),
                                            FILECHOOSER_RESULTCODE);
                 } catch (Exception e) {
-                    // If no app can handle photo selection, try direct gallery
+                    Log.e(TAG, "File chooser error: " + e.getMessage());
                     try {
-                        Intent galleryIntent = new Intent(Intent.ACTION_PICK);
+                        Intent galleryIntent = new Intent(Intent.ACTION_GET_CONTENT);
                         galleryIntent.setType("image/*");
+                        galleryIntent.addCategory(Intent.CATEGORY_OPENABLE);
                         startActivityForResult(galleryIntent, FILECHOOSER_RESULTCODE);
-                    } catch (Exception ignored) {
+                    } catch (Exception ex) {
                         filePathCallback.onReceiveValue(null);
                         filePathCallback = null;
                     }
@@ -90,14 +111,14 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                // Auto-grant WebView mic/camera permissions (we declare them in manifest)
-                String[] resources = request.getResources();
-                for (String r : resources) {
-                    if (r.equals(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
-                        // Android-level permission is handled by requestRuntimePermissions()
-                    }
-                }
+                Log.d(TAG, "onPermissionRequest: " + java.util.Arrays.toString(request.getResources()));
                 request.grant(request.getResources());
+            }
+
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage cm) {
+                Log.d(TAG, "JS [" + cm.messageLevel() + "] " + cm.message());
+                return true;
             }
         });
 
@@ -105,9 +126,11 @@ public class MainActivity extends Activity {
         webView.setVerticalScrollBarEnabled(false);
         webView.setHorizontalScrollBarEnabled(false);
 
+        // Load HTML
         webView.loadUrl("file:///android_asset/index.html");
+        Log.d(TAG, "Loading HTML from assets");
 
-        // Request camera + audio permissions on first launch
+        // Request permissions
         requestRuntimePermissions();
     }
 
@@ -119,69 +142,61 @@ public class MainActivity extends Activity {
         boolean needAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED;
 
-        if (needCamera && needAudio) {
-            ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO},
-                REQUEST_ALL);
-        } else if (needCamera) {
-            ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA);
-        } else if (needAudio) {
-            ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_AUDIO);
+        if (needCamera || needAudio) {
+            java.util.List<String> perms = new java.util.ArrayList<>();
+            if (needCamera) perms.add(Manifest.permission.CAMERA);
+            if (needAudio) perms.add(Manifest.permission.RECORD_AUDIO);
+            ActivityCompat.requestPermissions(this, perms.toArray(new String[0]), REQUEST_ALL);
         }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        // If denied, show a toast-style hint via JS
         for (int i = 0; i < permissions.length; i++) {
             if (grantResults[i] == PackageManager.PERMISSION_DENIED) {
-                String perm = permissions[i];
-                String msg;
-                if (Manifest.permission.CAMERA.equals(perm)) {
-                    msg = "相机权限被拒绝，拍照功能不可用。请到系统设置中开启权限。";
-                } else if (Manifest.permission.RECORD_AUDIO.equals(perm)) {
-                    msg = "麦克风权限被拒绝，录音功能不可用。请到系统设置中开启权限。";
+                Log.w(TAG, "Permission denied: " + permissions[i]);
+                final String msg;
+                if (Manifest.permission.CAMERA.equals(permissions[i])) {
+                    msg = "相机权限被拒，拍照不可用。请到系统设置中开启";
+                } else if (Manifest.permission.RECORD_AUDIO.equals(permissions[i])) {
+                    msg = "麦克风权限被拒，录音不可用。请到系统设置中开启";
                 } else {
-                    msg = "权限被拒绝，部分功能不可用。";
+                    msg = "权限被拒，部分功能不可用";
                 }
-                showJsAlert(msg);
+                webView.post(() -> webView.evaluateJavascript(
+                    "if(typeof showPermissionHint==='function')showPermissionHint('" +
+                    msg.replace("'", "\\'") + "')", null));
             }
         }
-    }
-
-    private void showJsAlert(String msg) {
-        webView.post(() -> {
-            webView.evaluateJavascript(
-                "alert('⚠️ " + msg.replace("'", "\\'") + "')",
-                null
-            );
-        });
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        Log.d(TAG, "onActivityResult: req=" + requestCode + " res=" + resultCode);
 
         if (requestCode == FILECHOOSER_RESULTCODE) {
-            if (filePathCallback == null) return;
+            if (filePathCallback == null) {
+                Log.w(TAG, "filePathCallback is null");
+                return;
+            }
             if (resultCode == RESULT_OK && data != null) {
                 Uri result = data.getData();
+                Log.d(TAG, "File selected: " + result);
                 if (result != null) {
-                    // Take persistable permission so WebView can read it
                     try {
                         getContentResolver().takePersistableUriPermission(
-                            result,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        );
-                    } catch (Exception ignored) {}
+                            result, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    } catch (Exception e) {
+                        Log.w(TAG, "takePersistable failed: " + e.getMessage());
+                    }
                     filePathCallback.onReceiveValue(new Uri[]{result});
                 } else {
                     filePathCallback.onReceiveValue(null);
                 }
             } else {
+                Log.d(TAG, "File chooser cancelled or no data");
                 filePathCallback.onReceiveValue(null);
             }
             filePathCallback = null;
