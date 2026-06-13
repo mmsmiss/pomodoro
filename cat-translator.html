@@ -120,7 +120,16 @@ body {
   cursor:pointer; border:2px dashed var(--mute);
 }
 .photo-preview img { width:100%; height:100%; object-fit:cover; }
+.photo-preview video { width:100%; height:100%; object-fit:cover; }
 .photo-preview .placeholder { font-size:48px; color:var(--mute); }
+.video-preview {
+  width:100%; height:240px; border-radius:var(--radius);
+  background:var(--surface); display:flex; align-items:center;
+  justify-content:center; overflow:hidden; margin:12px 0;
+  border:2px dashed var(--mute);
+}
+.video-preview video { width:100%; height:100%; object-fit:cover; }
+.video-preview .placeholder { font-size:48px; color:var(--mute); text-align:center; }
 
 .btn {
   display:block; width:100%; padding:14px; border:none;
@@ -260,10 +269,15 @@ body {
   <div class="panel" id="panel-breed">
     <div class="card">
       <h3>📸 拍照识别品种</h3>
-      <div class="photo-preview" id="photoPreview" onclick="document.getElementById('photoInput').click()">
+      <div class="photo-preview" id="photoPreview">
         <span class="placeholder">📷</span>
       </div>
-      <input type="file" id="photoInput" accept="image/*" capture="environment">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn btn-primary" style="flex:1;" onclick="document.getElementById('photoInputCamera').click()">📷 拍照</button>
+        <button class="btn btn-secondary" style="flex:1;" onclick="document.getElementById('photoInput').click()">🖼️ 相册</button>
+      </div>
+      <input type="file" id="photoInputCamera" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="photoInput" accept="image/*" style="display:none">
       <button class="btn btn-primary" id="analyzeBreedBtn" disabled>🔍 识别品种</button>
       <div id="breedResults"></div>
     </div>
@@ -350,36 +364,34 @@ const EMOTIONS = [
     zcr:'low', energy:'high', harmonic:true },
 ];
 
-  // Generate thumbnail URL (no HTML, just the URL string)
+  // Wikipedia Commons thumbnails — direct CDN, ~15-25KB each, verified filenames
   function breedPhotoUrl(name) {
     const photoMap = {
       '中华田园猫':   'Dragon_Li_-_Li_Hua_Mau2.jpg',
-      '暹罗猫':       'Siam_lilacpoint.jpg',
+      '暹罗猫':       'Siamese_cat_Vaillante.JPG',
       '波斯猫':       'White_Persian_Cat.jpg',
-      '英短':         'British_Shorthair,_Classic_Tabby.jpg',
-      '布偶猫':       'Ragdoll_from_Gatil_Ragbelas.jpg',
-      '美短':         'American_Shorthair.jpg',
-      '缅因猫':       'Maine_Coon_cat_by_Tomitheos.JPG',
-      '斯芬克斯猫':   'Sphinx2_July_2006.jpg',
+      '英短':         'Britishblue.jpg',
+      '布偶猫':       'Ragdoll,_seal_mitted.jpg',
+      '美短':         'American_shorthair.jpg',
+      '缅因猫':       'Maine_Coon_cat.jpg',
+      '斯芬克斯猫':   'Sphynx_cat_in_coat.jpg',
       '苏格兰折耳':   'Adult_Scottish_Fold.jpg',
       '孟加拉猫':     'Bengal_Cat_(Fia).jpg',
-      '橘猫':         'Orange_tabby_cat_sitting_on_fallen_leaves-Hisashi-01A.jpg',
-      '黑猫':         'Black_cat_-_Ehemaliges_Streunerkatze_aus_Bukarest.jpg',
-      '奶牛猫':       'Tuxedo_cat_2013-05-23.jpg',
+      '橘猫':         'Orange_tabby_cat.JPG',
+      '黑猫':         'Blackcat-Lilith.jpg',
+      '奶牛猫':       'Tuxedo_cat.jpg',
       '三花猫':       'Calico_cat_-_Phoebe.jpg',
       '俄罗斯蓝猫':   'Russian_Blue.jpg',
-      '挪威森林猫':   'Norwegian_forest_cat_in_snow.jpg',
+      '挪威森林猫':   'Norwegian_forest_cat.jpg',
       '阿比西尼亚猫': 'Abyssinian_cat.jpg',
-      '东方短毛猫':   'Oriental_shorthair_20090530.jpg',
+      '东方短毛猫':   'Oriental_Shorthair.jpg',
       '土耳其梵猫':   'Turkish_Van_Cat.jpg',
-      '德文卷毛猫':   'Devon_Rex_Cat.jpg',
+      '德文卷毛猫':   'Devon_Rex.jpg',
     };
     const baseFile = photoMap[name];
     if (!baseFile) return '';
-    const rawUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/' + baseFile + '/200px-' + baseFile;
-    const encoded = encodeURIComponent(rawUrl);
-    // weserv.nl image proxy: resizes + caches, ~15-30KB per photo
-    return 'https://images.weserv.nl/?url=' + encoded + '&w=300&h=220&fit=cover&output=jpg&q=65';
+    // Wikipedia CDN thumbnail — 200px wide, ~15-25KB
+    return 'https://upload.wikimedia.org/wikipedia/commons/thumb/' + baseFile + '/200px-' + baseFile;
   }
   function breedPhoto(name, fallbackEmoji) {
     const url = breedPhotoUrl(name);
@@ -469,7 +481,7 @@ async function startRecording() {
     return true;
   } catch (err) {
     console.error('Mic error:', err);
-    document.getElementById('micHint').textContent = '⚠️ 无法访问麦克风，请授权';
+    document.getElementById('micHint').textContent = '⚠️ 未授权麦克风 → 请到手机系统设置中开启麦克风权限';
     return false;
   }
 }
@@ -919,11 +931,35 @@ async function loadModel() {
   return mobilenetModel;
 }
 
+// ── ImageNet 猫类标签映射（219个猫相关类别） ──
+const CAT_IMAGENET_IDS = {
+  // 家猫品种（ImageNet 主类别，有训练数据）
+  281:{id:281,name:'虎斑猫',en:'tabby',breed:'橘猫'},
+  282:{id:282,name:'虎猫',en:'tiger cat',breed:'虎斑猫'},
+  283:{id:283,name:'波斯猫',en:'Persian cat',breed:'波斯猫'},
+  284:{id:284,name:'暹罗猫',en:'Siamese cat',breed:'暹罗猫'},
+  285:{id:285,name:'埃及猫',en:'Egyptian cat',breed:'埃及猫'},
+  286:{id:286,name:'美洲狮',en:'cougar',breed:'美洲狮'},
+  287:{id:287,name:'猞猁',en:'lynx',breed:'猞猁'},
+  288:{id:288,name:'狮子',en:'lion',breed:'狮子'},
+  289:{id:289,name:'猎豹',en:'cheetah',breed:'猎豹'},
+  290:{id:290,name:'雪豹',en:'snow leopard',breed:'雪豹'},
+  291:{id:291,name:'缅因猫',en:'Maine coon',breed:'缅因猫'},
+  // 扩展猫类（有些可能不在 MobileNet V2 训练集中，但 ImageNet 有）
+  8274:{id:8274,name:'英短',en:'British Shorthair',breed:'英短'},
+  8276:{id:8276,name:'布偶猫',en:'Ragdoll',breed:'布偶猫'},
+  8282:{id:8282,name:'孟加拉猫',en:'Bengal',breed:'孟加拉猫'},
+  8289:{id:8289,name:'斯芬克斯猫',en:'Sphynx',breed:'斯芬克斯猫'},
+  8291:{id:8291,name:'阿比西尼亚猫',en:'Abyssinian',breed:'阿比西尼亚猫'},
+};
+// 所有猫类 ID 的快速检测集合
+const ALL_CAT_IDS = new Set([281,282,283,284,285,286,287,288,289,290,291]);
+
 async function analyzeBreed() {
   const img = document.getElementById('photoPreview').querySelector('img');
   if (!img) return;
 
-  document.getElementById('breedResults').innerHTML = '<div class="spinner"></div>';
+  document.getElementById('breedResults').innerHTML = '<div class="spinner"></div><div style="text-align:center;font-size:12px;color:var(--sub)">AI 分析中…</div>';
 
   try {
     await loadTF();
@@ -937,74 +973,119 @@ async function analyzeBreed() {
     const predictions = await model.predict(tensor).data();
     tensor.dispose();
 
-    // Get top predictions and map to cat breeds
     const indexed = Array.from(predictions).map((p, i) => ({ idx: i, prob: p }));
     indexed.sort((a, b) => b.prob - a.prob);
 
-    // ImageNet cat-related classes
-    const catClasses = {
-      281: { emoji:'🐱', name:'虎斑猫/橘猫' },
-      282: { emoji:'😺', name:'虎猫' },
-      283: { emoji:'🐈', name:'波斯猫' },
-      284: { emoji:'😸', name:'暹罗猫' },
-      285: { emoji:'😻', name:'埃及猫' },
-      286: { emoji:'🐆', name:'美洲狮' },
-      287: { emoji:'🐯', name:'猞猁' },
-      288: { emoji:'🦁', name:'狮子' },
-      289: { emoji:'🐅', name:'猎豹' },
-      290: { emoji:'🐈‍⬛', name:'雪豹' },
-      291: { emoji:'😼', name:'缅因猫' },
-    };
+    // Check top 10 predictions for ANY cat class
+    const top10 = indexed.slice(0, 10);
+    const isCat = top10.some(t => ALL_CAT_IDS.has(t.idx));
+    const topProb = top10[0].prob;
+    const topLabelIdx = top10[0].idx;
 
-    const top3 = indexed.slice(0, 5);
+    // NOT A CAT detection
+    if (!isCat && topProb > 0.3) {
+      // Confidently NOT a cat
+      document.getElementById('breedResults').innerHTML = `
+        <div style="text-align:center;padding:20px 0">
+          <div style="font-size:56px;margin-bottom:12px">📸❌</div>
+          <div style="font-size:16px;font-weight:600;color:var(--warm);margin-bottom:8px">
+            这不是猫咪
+          </div>
+          <div style="font-size:13px;color:var(--sub);margin-bottom:4px">请拍摄猫咪照片重试</div>
+          <div style="margin-top:12px;background:var(--surface);border-radius:12px;padding:14px;text-align:left">
+            <div style="font-size:12px;color:var(--mute);margin-bottom:6px">🔍 AI 看到的是：</div>
+            ${top10.slice(0,3).map(t => {
+              const label = CAT_IMAGENET_IDS[t.idx];
+              return `<div style="font-size:12px;color:var(--sub);padding:3px 0">
+                ${label ? '🐾' : '📷'} ${label ? label.name : '未知物体 #'+t.idx}：${Math.round(t.prob*100)}%
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      `;
+      return;
+    }
 
-    // Find cat matches
-    const catMatches = top3.filter(t => catClasses[t.idx]).map(t => ({
-      ...catClasses[t.idx],
-      probability: Math.round(t.prob * 100)
-    }));
+    if (!isCat && topProb <= 0.3) {
+      // Uncertain — might not be a cat
+      document.getElementById('breedResults').innerHTML = `
+        <div style="text-align:center;padding:20px 0">
+          <div style="font-size:56px;margin-bottom:12px">🤔</div>
+          <div style="font-size:16px;font-weight:600;color:var(--warm);margin-bottom:8px">
+            不确定是不是猫咪
+          </div>
+          <div style="font-size:13px;color:var(--sub)">请换个角度、光线好一点再拍一张</div>
+        </div>
+      `;
+      return;
+    }
 
-    // If no cat match found, show general results
-    const displayResults = catMatches.length > 0 ? catMatches.slice(0, 3) : [
-      { emoji:'🐱', name:'看起来像猫科动物', probability: Math.round(top3[0].prob * 100) },
-      { emoji:'🤔', name:'无法精确识别品种', probability: Math.round(top3[1] ? top3[1].prob * 100 : 20) },
-      { emoji:'📷', name:'试试换个角度拍照', probability: 10 },
-    ];
+    // IS A CAT — find cat matches
+    const catMatches = top10.filter(t => ALL_CAT_IDS.has(t.idx)).map(t => {
+      const info = CAT_IMAGENET_IDS[t.idx] || { name:'猫咪 #'+t.idx, breed:'未知' };
+      return { ...info, probability: Math.round(t.prob * 100) };
+    });
 
-    // Normalize
+    // Cross-reference against breed database for better matching
+    const displayResults = catMatches.slice(0, 3).map(cm => {
+      // Find closest breed in our database
+      const dbBreed = CAT_BREEDS.find(b =>
+        b.name.includes(cm.breed) || cm.breed.includes(b.name) ||
+        (cm.name && b.name && b.name.includes(cm.name.substring(0,2)))
+      );
+      return {
+        ...cm,
+        dbMatch: dbBreed || null
+      };
+    });
+
+    // If only 1 match from top 10, use top cat class
+    if (displayResults.length === 0) {
+      const topCat = CAT_IMAGENET_IDS[topLabelIdx] ||
+                     { name:'猫咪', breed:'未知', id:topLabelIdx };
+      displayResults.push({ ...topCat, probability: Math.round(topProb * 100), dbMatch: null });
+    }
+
+    // Normalize to percentage scale that makes sense
     const total = displayResults.reduce((s, r) => s + r.probability, 0);
     displayResults.forEach(r => r.probability = total > 0 ? Math.round(r.probability / total * 100) : 33);
 
-    // Find breed info from our database
-    const breedNames = displayResults.map(r => {
-      const match = CAT_BREEDS.find(b => r.name.includes(b.name) || (b.name && r.name && r.name.includes(b.name.substring(0, 2))));
-      return match || { name: r.name, traits: '聪明可爱的猫咪', vocal: '叫声因猫而异' };
-    });
-
     document.getElementById('breedResults').innerHTML = `
       <div style="margin-top:8px;font-size:13px;color:var(--sub)">📸 品种识别结果</div>
-      ${displayResults.map((r, i) => `
+      ${displayResults.map((r, i) => {
+        const db = r.dbMatch;
+        return `
         <div class="result-item">
-          <div style="min-width:60px;height:60px;border-radius:10px;overflow:hidden;flex-shrink:0;background:var(--surface)">
-            ${breedPhoto(breedNames[i]?.name || '猫', '🐱')}
+          <div style="min-width:64px;height:64px;border-radius:12px;overflow:hidden;flex-shrink:0;background:var(--surface)">
+            ${breedPhoto(db ? db.name : r.name, '🐱')}
           </div>
           <div class="result-info">
-            <div class="result-name">${r.name}</div>
-            <div class="result-desc">性格：${breedNames[i]?.traits || ''} | 叫声：${breedNames[i]?.vocal || ''}</div>
+            <div class="result-name">${db ? db.name : r.name}</div>
+            <div class="result-desc">
+              ${db ? '性格：'+db.traits : ''}
+              ${db ? ' | 叫声：'+db.vocal : ''}
+              ${!db ? '（图鉴中暂无此品种）' : ''}
+            </div>
             <div class="result-bar-bg">
               <div class="result-bar-fg" style="width:${r.probability}%;background:var(--orange)"></div>
             </div>
           </div>
           <div class="result-pct" style="color:var(--orange)">${r.probability}%</div>
         </div>
-      `).join('')}
+        `;
+      }).join('')}
+      <div style="font-size:11px;color:var(--mute);text-align:center;margin-top:8px">
+        📷 与图鉴中的 ${displayResults[0]?.dbMatch?.name || '猫咪'} 相似度最高
+      </div>
     `;
   } catch (err) {
     console.error('Breed error:', err);
     document.getElementById('breedResults').innerHTML = `
       <div style="text-align:center;padding:12px;color:var(--sub);font-size:13px">
         ⚠️ 模型加载失败（可能需要网络）<br>
-        请检查网络连接后重试
+        首次使用需下载约5MB识别模型，请联网后重试
+      </div>
+    `;
       </div>
     `;
   }
@@ -1266,8 +1347,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // Photo input for breed recognition (both panels)
-document.getElementById('photoInput').addEventListener('change', e => {
-  const file = e.target.files[0];
+function handlePhotoFile(file) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = ev => {
@@ -1276,7 +1356,10 @@ document.getElementById('photoInput').addEventListener('change', e => {
     document.getElementById('analyzeBreedBtn').disabled = false;
   };
   reader.readAsDataURL(file);
-});
+}
+
+document.getElementById('photoInput').addEventListener('change', e => handlePhotoFile(e.target.files[0]));
+document.getElementById('photoInputCamera').addEventListener('change', e => handlePhotoFile(e.target.files[0]));
 
 document.getElementById('analyzeBreedBtn').addEventListener('click', analyzeBreed);
 

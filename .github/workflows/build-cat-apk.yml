@@ -82,9 +82,12 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           gradle assembleDebug
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload APK to Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: cat-translator-apk
-          path: cat-translator-apk/app/build/outputs/apk/debug/*.apk
+          name: cat-translator-v1.0
+          tag_name: cat-translator-latest
+          files: cat-translator-apk/app/build/outputs/apk/debug/*.apk
+          prerelease: true
+          fail_on_unmatched_files: true
           if-no-files-found: warn
