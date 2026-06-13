@@ -62,12 +62,12 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-v2-
 
-      - name: Download Gradle 8.4
+      - name: Download Gradle 8.5
         run: |
           cd /tmp
-          curl -sSLO https://services.gradle.org/distributions/gradle-8.4-bin.zip
-          unzip -q gradle-8.4-bin.zip
-          echo "/tmp/gradle-8.4/bin" >> $GITHUB_PATH
+          curl -sSLO https://services.gradle.org/distributions/gradle-8.5-bin.zip
+          unzip -q gradle-8.5-bin.zip
+          echo "/tmp/gradle-8.5/bin" >> $GITHUB_PATH
 
       - name: Copy pomodoro.html into assets
         run: |

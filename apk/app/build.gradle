@@ -16,25 +16,11 @@ android {
 
     buildTypes {
         debug {
-            minifyEnabled false
             debuggable true
         }
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
         }
-    }
-
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-
-    // pomodoro.html is copied into assets by the CI workflow (or manually)
-    // File is loaded from: app/src/main/assets/index.html
-
-    lint {
-        abortOnError false
     }
 }
 
