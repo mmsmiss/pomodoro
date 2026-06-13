@@ -822,14 +822,33 @@ function loadTF(cb){
   document.head.appendChild(s);
 }
 
+// Load MobileNet model — local first (bundled in APK), CDN fallback
+// Model files (~5MB) are bundled in assets/model/ for APK builds
 function loadModel(cb){
   if(mobilenetModel){cb(mobilenetModel);return;}
-  document.getElementById('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:12px;color:#a0a0c0">下载识别模型中(~5MB)</div>';
-  tf.loadGraphModel('https://tfhub.dev/google/tfjs-model/imagenet/mobilenet_v2_140_224/classification/3/default/1',{fromTFHub:true}).then(function(m){
+
+  var modelUrl='model/model.json';  // local path (bundled in APK assets)
+  var cdnUrl='https://www.kaggle.com/api/v1/models/google/mobilenet-v2/tensorFlow2/140-224-classification/3/download';
+
+  document.getElementById('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:12px;color:#a0a0c0">加载识别模型中…</div>';
+
+  function tryCDN(){
+    tf.loadGraphModel(cdnUrl).then(function(m){
+      mobilenetModel=m;cb(m);
+      document.getElementById('breedResults').innerHTML='';
+    }).catch(function(e){
+      document.getElementById('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">⚠️ 模型加载失败，请检查网络后重试</div>';
+      console.error(e);
+    });
+  }
+
+  tf.loadGraphModel(modelUrl).then(function(m){
     mobilenetModel=m;cb(m);
-  }).catch(function(e){
-    document.getElementById('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">模型下载失败，请检查网络</div>';
-    console.error(e);
+    document.getElementById('breedResults').innerHTML='';
+  }).catch(function(){
+    // Local model not available, try CDN
+    document.getElementById('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:12px;color:#a0a0c0">下载识别模型中(~5MB，首次需联网)</div>';
+    tryCDN();
   });
 }
 

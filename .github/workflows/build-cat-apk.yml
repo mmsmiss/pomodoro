@@ -69,10 +69,26 @@ jobs:
           unzip -q gradle-8.4-bin.zip
           echo "/tmp/gradle-8.4/bin" >> $GITHUB_PATH
 
+      - name: Download MobileNet TF.js model (offline recognition)
+        run: |
+          mkdir -p cat-translator-apk/app/src/main/assets/model
+          cd cat-translator-apk/app/src/main/assets/model
+          # Download model.json and shards from Google Storage
+          BASE="https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3"
+          curl -sSLO "$BASE/model.json"
+          # Parse shard file list from model.json and download each
+          grep -oP '"group\K[^"]+\.bin"' model.json > /dev/null || true
+          for F in group1-shard1of2.bin group1-shard2of2.bin; do
+            curl -sSLO "$BASE/$F"
+          done
+          echo "=== Model files ==="
+          ls -la
+          du -sh .
+
       - name: Copy cat-translator.html into assets
         run: |
           mkdir -p cat-translator-apk/app/src/main/assets
-          cp cat-translator.html cat-translator-apk/app/src/main/assets/index.html
+          cp cat-translator-v2.html cat-translator-apk/app/src/main/assets/index.html
 
       - name: Build debug APK
         working-directory: cat-translator-apk
