@@ -77,8 +77,20 @@ body {
 /* Waveform */
 .wave-canvas {
   width:100%; height:80px; border-radius:12px;
-  background:var(--surface); margin:12px 0;
+  background:var(--surface); margin:8px 0;
 }
+.wave-label {
+  display:flex; align-items:center; gap:6px;
+  margin:0 0 -6px 0; font-size:11px; color:var(--mute);
+}
+.playback-btn {
+  display:flex; align-items:center; justify-content:center;
+  gap:6px; width:100%; padding:10px; border:none;
+  border-radius:10px; background:var(--surface); color:var(--text);
+  font-size:13px; cursor:pointer; margin-top:4px;
+  transition:background 0.2s;
+}
+.playback-btn:active { background:var(--orange); color:#1a1a2e; }
 
 /* Timer */
 .rec-timer { font-size:28px; font-family:"SF Mono","Consolas",monospace; color:var(--red); }
@@ -215,7 +227,14 @@ body {
         <div class="mic-hint" id="micHint">点击开始录音</div>
         <div class="rec-timer" id="recTimer" style="display:none">00:00</div>
       </div>
+      <div style="display:flex;align-items:center;gap:6px;margin:0 0 -6px 0;font-size:11px;color:var(--mute)">
+        <span>🔊</span><span>声音波形 — 录音时显示实时波动</span>
+      </div>
       <canvas class="wave-canvas" id="waveCanvas"></canvas>
+      <div id="playbackArea" style="display:none;margin-top:4px">
+        <button class="playback-btn" id="playAudioBtn">▶️ 回放录音，对比分析结果</button>
+        <audio id="audioPlayer" style="display:none"></audio>
+      </div>
       <div id="resultsArea"></div>
       <div id="recordingActions" style="display:none">
         <button class="btn btn-secondary btn-small" id="saveToCatBtn" style="display:none">💾 保存到猫咪档案</button>
@@ -357,6 +376,7 @@ let recordingStart = 0;
 let recInterval = null;
 let animFrame = null;
 let lastResult = null;
+let lastAudioBlob = null;
 let catPhotoData = null;
 
 // ── 音频引擎 ──────────────────────────────────────
@@ -390,6 +410,7 @@ async function startRecording() {
     mediaRecorder.start(100);
 
     recordingStart = Date.now();
+    document.getElementById('playbackArea').style.display = 'none';
     document.getElementById('micBtn').classList.add('recording');
     document.getElementById('micBtn').textContent = '⏹️';
     document.getElementById('micHint').textContent = '录音中…再点一次停止';
@@ -489,6 +510,14 @@ async function analyzeRecording() {
 
   try {
     const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+
+    // Save for playback
+    lastAudioBlob = blob;
+    const audioUrl = URL.createObjectURL(blob);
+    const player = document.getElementById('audioPlayer');
+    player.src = audioUrl;
+    document.getElementById('playbackArea').style.display = 'block';
+
     const arrayBuffer = await blob.arrayBuffer();
     const ctx = await ensureAudioCtx();
     const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
@@ -1066,6 +1095,22 @@ document.getElementById('analyzeBreedBtn').addEventListener('click', analyzeBree
 
 // Save to cat button
 document.getElementById('saveToCatBtn').addEventListener('click', saveToCat);
+
+// Playback button
+document.getElementById('playAudioBtn').addEventListener('click', () => {
+  const player = document.getElementById('audioPlayer');
+  const btn = document.getElementById('playAudioBtn');
+  if (player.paused) {
+    player.play();
+    btn.textContent = '⏸️ 暂停回放';
+  } else {
+    player.pause();
+    btn.textContent = '▶️ 回放录音，对比分析结果';
+  }
+});
+document.getElementById('audioPlayer').addEventListener('ended', () => {
+  document.getElementById('playAudioBtn').textContent = '▶️ 回放录音，对比分析结果';
+});
 
 // Add cat button
 document.getElementById('addCatBtn').addEventListener('click', () => {
