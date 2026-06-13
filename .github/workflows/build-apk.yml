@@ -75,7 +75,15 @@ jobs:
         working-directory: apk
         env:
           ANDROID_HOME: /home/runner/android-sdk
-        run: gradle assembleDebug
+        run: |
+          # Tell Gradle where the SDK is
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          # Debug: show what we have
+          echo "=== SDK contents ==="
+          ls "$ANDROID_HOME/platforms/" 2>/dev/null || echo "no platforms"
+          ls "$ANDROID_HOME/build-tools/" 2>/dev/null || echo "no build-tools"
+          echo "=== Starting Gradle build ==="
+          gradle assembleDebug --info 2>&1 | tail -200
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
