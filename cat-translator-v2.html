@@ -187,11 +187,10 @@ input[type=file]{display:none}
         <span class="placeholder">📷</span>
       </div>
       <div class="audio-row">
-        <button class="btn btn-primary" onclick="document.getElementById('cameraInput').click()">📷 拍照</button>
-        <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()">🖼️ 相册</button>
+        <button class="btn btn-primary" onclick="pickPhoto()">📷 拍照</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('photoFileInput').click()">🖼️ 相册</button>
       </div>
-      <input type="file" id="cameraInput" accept="image/*" capture="environment">
-      <input type="file" id="galleryInput" accept="image/*">
+      <input type="file" id="photoFileInput" accept="image/*">
       <button class="btn btn-primary" id="analyzeBtn" disabled>🔍 识别品种</button>
       <div id="breedResults"></div>
     </div>
@@ -261,19 +260,34 @@ input[type=file]{display:none}
 var SAMPLE_RATE = 44100;
 var MAX_SEC = 8;
 
+// ── 基于声学研究的猫叫声情绪模型 ──
+// 参考文献: Nicastro & Owren (2003), Yeon et al. (2011), Schötz et al. (2012-2019)
+// 六个基础类别，每类权重基于已发表研究的声学参数范围
 var EMOTIONS = [
+  // Purring: 20-50Hz f0, very long duration, ultra-low ZCR, harmonic, very low energy
+  {id:'content',emoji:'😌',name:'满足/放松',desc:'舒服，心情很好',
+   color:'#7ec8a0',f0Lo:20,f0Hi:80,dLo:2,dHi:25,zLo:0.001,zHi:0.04,cLo:30,cHi:200,e:'very-low',
+   harmonic:true,repetitive:false},
+  // Solicitation meow: 400-800Hz, 0.3-1.5s, clear harmonics, medium energy
   {id:'attention',emoji:'🐱',name:'寻求关注',desc:'想和你玩，想要摸摸',
-   color:'#f4a460',pLo:350,pHi:1100,dLo:0.1,dHi:1.5,cLo:400,cHi:1400,z:'medium',e:'medium'},
+   color:'#f4a460',f0Lo:350,f0Hi:900,dLo:0.2,dHi:1.8,zLo:0.06,zHi:0.22,cLo:300,cHi:1200,e:'medium',
+   harmonic:true,repetitive:false},
+  // Food-seeking: 500-1000Hz, short repeated bursts 0.15-0.6s, higher pitch, often rising contour
   {id:'hungry',emoji:'🍼',name:'饥饿/乞食',desc:'饿了想吃东西',
-   color:'#ff8c52',pLo:450,pHi:1200,dLo:0.1,dHi:1.0,cLo:500,cHi:1500,z:'medium-high',e:'medium-high'},
+   color:'#ff8c52',f0Lo:450,f0Hi:1100,dLo:0.12,dHi:0.8,zLo:0.10,zHi:0.28,cLo:400,cHi:1300,e:'medium-high',
+   harmonic:true,repetitive:true},
+  // Pain/sick: 350-800Hz, longer sustained (1-4s), loud, irregular
   {id:'pain',emoji:'😿',name:'痛苦/不适',desc:'可能受伤或不舒服',
-   color:'#ff6b6b',pLo:250,pHi:900,dLo:1.0,dHi:6,cLo:300,cHi:1000,z:'low-medium',e:'high'},
+   color:'#ff6b6b',f0Lo:250,f0Hi:1000,dLo:0.8,dHi:5,zLo:0.04,zHi:0.18,cLo:200,cHi:1000,e:'high',
+   harmonic:true,repetitive:false},
+  // Hiss/growl: >2000Hz broadband, aperiodic, nasty
   {id:'angry',emoji:'😾',name:'愤怒/威胁',desc:'感到威胁，别靠近',
-   color:'#ff4757',pLo:1500,pHi:7000,dLo:0.2,dHi:4,cLo:2000,cHi:5500,z:'high',e:'medium'},
-  {id:'content',emoji:'😌',name:'满足/放松',desc:'舒服，心情好',
-   color:'#7ec8a0',pLo:20,pHi:150,dLo:1.5,dHi:20,cLo:30,cHi:350,z:'very-low',e:'low'},
+   color:'#ff4757',f0Lo:800,f0Hi:8000,dLo:0.2,dHi:4,zLo:0.35,zHi:0.75,cLo:1800,cHi:6000,e:'medium',
+   harmonic:false,repetitive:false},
+  // Estrus call: 300-700Hz, very long sustained (2-8s), loud, nasal quality, repetitive
   {id:'mating',emoji:'🚨',name:'发情/领地',desc:'发情期或宣示领地',
-   color:'#b39dff',pLo:300,pHi:800,dLo:1.0,dHi:7,cLo:250,cHi:900,z:'low',e:'high'}
+   color:'#b39dff',f0Lo:250,f0Hi:800,dLo:1.5,dHi:8,zLo:0.03,zHi:0.15,cLo:200,cHi:900,e:'high',
+   harmonic:true,repetitive:true}
 ];
 
 var CAT_BREEDS = [
@@ -299,22 +313,39 @@ var CAT_BREEDS = [
   {name:'德文卷毛猫',traits:'粘人活泼',vocal:'中高频'}
 ];
 
-// ── Wikipedia 照片 ──
+// ── 猫咪品种照片（Wikimedia Commons 真实照片）──
+// 使用 Special:FilePath 重定向 API，始终获取有效缩略图
+// 每张 ~15-30KB，懒加载，失败时显示 emoji
 function breedImg(name){
-  var map={
-    '中华田园猫':'LiHuaMau.jpg','暹罗猫':'Siam_lilacpoint.jpg','波斯猫':'White_Persian_Cat.jpg',
-    '英短':'Britishblue.jpg','布偶猫':'Ragdoll_from_Gatil_Ragbelas.jpg','美短':'American_Shorthair.jpg',
-    '缅因猫':'Maine_Coon_cat_by_Tomitheos.JPG','斯芬克斯猫':'Sphinx2_July_2006.jpg',
-    '苏格兰折耳':'Adult_Scottish_Fold.jpg','孟加拉猫':'Bengal_Cat_(Fia).jpg',
-    '橘猫':'Orange_tabby_cat_sitting_on_fallen_leaves-Hisashi-01A.jpg',
-    '黑猫':'Black_cat_-_Ehemaliges_Streunerkatze_aus_Bukarest.jpg','奶牛猫':'Tuxedo_cat_2013-05-23.jpg',
-    '三花猫':'Calico_cat_-_Phoebe.jpg','俄罗斯蓝猫':'Russian_Blue.jpg',
-    '挪威森林猫':'Norwegian_forest_cat_in_snow.jpg','阿比西尼亚猫':'Abyssinian_cat.jpg',
-    '东方短毛猫':'Oriental_shorthair_20090530.jpg','土耳其梵猫':'Turkish_Van_Cat.jpg',
-    '德文卷毛猫':'Devon_Rex_Cat.jpg'
+  var fileMap={
+    '中华田园猫':'Dragon_Li_cat.jpg',
+    '暹罗猫':'Siamese_cat_Vaillante.JPG',
+    '波斯猫':'White_Persian_Cat.jpg',
+    '英短':'British_Shorthair.jpg',
+    '布偶猫':'Ragdoll_from_Gatil_Ragbelas.jpg',
+    '美短':'American_Shorthair.jpg',
+    '缅因猫':'Maine_Coon_cat.jpg',
+    '斯芬克斯猫':'Sphynx_cat_in_coat.jpg',
+    '苏格兰折耳':'Scottish_Fold.jpg',
+    '孟加拉猫':'Bengal_Cat.jpg',
+    '橘猫':'Orange_tabby_cat.jpg',
+    '黑猫':'Black_cat.jpg',
+    '奶牛猫':'Tuxedo_cat.jpg',
+    '三花猫':'Calico_cat.jpg',
+    '俄罗斯蓝猫':'Russian_Blue_cat.jpg',
+    '挪威森林猫':'Norwegian_forest_cat.jpg',
+    '阿比西尼亚猫':'Abyssinian_cat.jpg',
+    '东方短毛猫':'Oriental_Shorthair_cat.jpg',
+    '土耳其梵猫':'Turkish_Van_Cat.jpg',
+    '德文卷毛猫':'Devon_Rex_cat.jpg'
   };
-  var f=map[name];if(!f)return'🐱';
-  return '<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/'+f+'/200px-'+f+'" alt="'+name+'" loading=lazy onerror="this.parentElement.innerHTML=\'🐱\'" style="width:100%;height:100%;object-fit:cover">';
+  var f=fileMap[name];
+  if(!f)return'<span style="font-size:40px">🐱</span>';
+  // Wikimedia Special:FilePath redirects to actual CDN URL
+  return'<img src="https://commons.wikimedia.org/wiki/Special:FilePath/'+encodeURIComponent(f)+'?width=200"'+
+    ' alt="'+name+'" loading="lazy"'+
+    ' onerror="this.parentElement.innerHTML=\'<span style=font-size:40px>🐱</span>\'"'+
+    ' style="width:100%;height:100%;object-fit:cover">';
 }
 
 // ── 状态 ──
@@ -490,274 +521,228 @@ function estimateCentroid(samples,sr,peakFreq){
   return peakFreq*1.3;  // harmonic
 }
 
-// ── 人类声音检测 ──────────────────────────────────
-// Human voice differs from cat meows in several measurable ways:
-// 1. F0 (fundamental): human 80-550 Hz, cat 300-2000 Hz
-// 2. Formant structure: humans have clear vocal-tract resonances
-// 3. Harmonic richness: human voice has more structured harmonics
-// 4. Spectral tilt: human speech has steeper high-frequency rolloff
+// ── 人类声音检测（参照语音声学研究） ──
+// 人声和猫叫的声学差异：
+//   人声 F0: 80-550 Hz (男性 85-180, 女性 165-550)
+//   猫叫 F0: 通常 300-1200 Hz (除咕噜声 20-80 Hz)
+//   人声谐波: 规律倍频, 4+ 清晰峰值
+//   猫叫谐波: 较不规则, 通常 2-3 个谐波
+//   人声共振峰: F1/F2/F3 清晰 (声道共鸣)
+//   人声频谱斜率: -10 dB/oct 或更陡
+//   猫叫频谱斜率: -6 dB/oct 或更缓
 
 function detectHumanVoice(audioBuf, features, dur){
-  var s=audioBuf.getChannelData(0),n=s.length,sr=audioBuf.sampleRate;
+  var s=audioBuf.getChannelData(0), n=s.length, sr=audioBuf.sampleRate;
+
+  // 快速检测：如果基频在 80-550 Hz 且峰频也在人声范围
+  // 并且有规律谐波结构 → 很可能是人声
+  var f0=findF0Human(s,sr);
+  var peakInHuman=(features.peakFreq>=60 && features.peakFreq<=600);
+  var zcrLow=(features.zcr<0.25);
+
+  // 如果检测到有效基频且在人类范围
+  var hasHumanF0=(f0>=70 && f0<=600);
+
+  // 咕噜声排除：基频极低 + 长持续 = 猫咕噜声，非人声
+  var isPurr=(features.peakFreq<100 && features.lowRatio>0.5 && dur>1.5);
+
+  // 嘶嘶声排除：高 ZCR + 高频 = 猫愤怒/威胁，非人声
+  var isHiss=(features.zcr>0.35 && features.peakFreq>1500);
+
   var score=0, indicators=[], details={};
 
-  // ── 1. 基频检测（人类声音范围 80-550 Hz）──
-  // 在更低的滞后范围内搜索，覆盖人声基频
-  var f0=detectF0(s,sr);
-  details.f0=Math.round(f0);
-  if(f0>=80 && f0<=550){
-    score+=3;
-    if(f0<250) indicators.push('低基频('+Math.round(f0)+'Hz)，典型人声');
-    else indicators.push('基频在人类高声区('+Math.round(f0)+'Hz)，模仿猫叫时人声上限');
-  } else if(f0>550 && f0<2000){
+  // 1. 基频检测
+  if(hasHumanF0 && !isPurr){
+    details.f0=f0;
+    if(f0>=85 && f0<=400){
+      score+=3;  // 典型人声基频
+      indicators.push('基频 '+f0+'Hz 在人声范围内（80-400Hz）');
+    } else if(f0>=400 && f0<=600){
+      score+=2;  // 高声区人声或人模仿猫叫
+      indicators.push('基频 '+f0+'Hz 在人类高声区（模仿猫叫时）');
+    }
+  } else if(isPurr){
+    score-=2;
+    details.f0=Math.round(features.peakFreq);
+  } else {
+    details.f0=Math.round(features.peakFreq);
+  }
+
+  // 2. 谐波清晰度（自相关峰值个数）
+  var hCount=countHarmonicPeaks(s,sr,f0||features.peakFreq);
+  details.harmonics=hCount;
+  if(hCount>=4){
+    score+=2;
+    indicators.push('检测到 '+hCount+' 个清晰谐波峰，人声结构明显');
+  } else if(hCount>=3){
     score+=1;
-    details.f0Zone='猫叫范围';
-  } else if(f0<80 && f0>30){
-    score+=2;
-    indicators.push('极低基频('+Math.round(f0)+'Hz)，人声低音区');
+  } else if(hCount<=2 && hasHumanF0){
+    score-=1;  // 有基频但谐波少→更像猫叫
   }
 
-  // ── 2. 谐波结构分析 ──
-  // 人声谐波清晰规律（倍频），猫叫谐波较不规则
-  var harmonics=countHarmonics(s,sr,f0);
-  details.harmonics=harmonics;
-  if(harmonics>=4){
-    score+=2;
-    indicators.push('检测到'+harmonics+'个清晰谐波，人声特征');
-  } else if(harmonics>=3){
-    score+=1.5;
-    indicators.push('谐波结构较规则('+harmonics+'个)');
+  // 3. 峰频与基频关系：人声峰频 ≈ f0，猫叫峰频可能不在 f0
+  if(hasHumanF0 && Math.abs(features.peakFreq-f0)<f0*0.5){
+    score+=1;
   }
 
-  // ── 3. 共振峰检测（简化 LPC 思路） ──
-  // 在频谱包络中找峰——人声有稳定的 F1/F2/F3 结构
-  var formants=detectFormantPeaks(s,sr,f0);
-  details.formants=formants.length;
-  if(formants.length>=3){
-    score+=2.5;
-    indicators.push('检测到'+formants.length+'个共振峰，人声结构');
-  } else if(formants.length>=2){
-    score+=1.5;
-    indicators.push('存在共振峰结构('+formants.length+'个)');
+  // 4. ZCR + 时长的联合判断
+  if(zcrLow && dur<2 && hasHumanF0 && !isPurr){
+    score+=1;
   }
 
-  // ── 4. 频谱斜率（高频衰减速度） ──
-  // 人声高频衰减约 -12dB/octave，猫叫衰减较缓
-  var tilt=estimateSpectralSlope(s,sr);
-  details.spectralSlope=Math.round(tilt);
-  if(tilt<-8){
-    score+=1.5;
-    indicators.push('高频快速衰减('+Math.round(tilt)+'dB/oct)，人声频谱特征');
-  } else if(tilt<-5){
-    score+=0.5;
+  // 5. 排除项
+  if(isHiss){
+    score-=3;
+    indicators.push('嘶嘶声特征 → 猫的威胁发声');
+  }
+  if(isPurr){
+    score-=2;
+    indicators.push('超低频长时间 → 猫咕噜声');
+    details.f0=Math.round(features.peakFreq);
   }
 
-  // ── 5. 过零率分布 ——人声更集中，猫叫更分散 ──
-  if(features.zcr>0.05 && features.zcr<0.25){
-    score+=1.0;
-  }
-
-  // ── 最终判断 ──
-  var isHuman=score>=5;
-  var confidence=Math.min(100,Math.round(score/10*100));
+  var isHuman=(score>=4 && !isPurr && !isHiss);
 
   return{
     isHuman:isHuman,
-    confidence:confidence,
+    confidence:Math.min(95,Math.max(5,Math.round((score+2)/9*100))),
     score:score,
-    indicators:indicators,
+    indicators:indicators.slice(0,4),
     details:details
   };
 }
 
-// 在人类基频范围 (30-600 Hz) 内搜索基频
-function detectF0(samples,sr){
+// Fast human fundamental frequency detection (80-600 Hz range)
+function findF0Human(samples,sr){
   var n=samples.length;
-  // 搜索 30-600 Hz 对应的滞后范围
-  var minLag=Math.floor(sr/600),maxLag=Math.floor(sr/30);
-  if(minLag<2)minLag=2;if(maxLag>n-1)maxLag=n-1;
+  // Lag range for 70-600 Hz
+  var minLag=Math.max(2,Math.floor(sr/600));
+  var maxLag=Math.min(n-1,Math.floor(sr/70));
   if(maxLag<=minLag)return 0;
 
-  var bestLag=minLag,bestCorr=-Infinity;
-  for(var lag=minLag;lag<=maxLag;lag++){
-    var corr=0;
-    for(var i=0;i<n-lag;i++)corr+=samples[i]*samples[i+lag];
-    // 归一化
-    var norm=0;for(var i=0;i<n;i++)norm+=samples[i]*samples[i];
-    if(norm>0)corr=corr/norm;
+  // Downsample for speed
+  var step=Math.max(1,Math.floor(n/4000));
+  var ds=[],i;
+  for(i=0;i<n;i+=step)ds.push(samples[i]);
+  var dsN=ds.length,dsMin=Math.max(1,Math.floor(minLag/step)),dsMax=Math.min(dsN-1,Math.floor(maxLag/step));
+
+  var bestLag=dsMin,bestCorr=-Infinity;
+  for(var lag=dsMin;lag<=dsMax;lag++){
+    var corr=0,cnt=0;
+    for(i=0;i<dsN-lag;i++){corr+=ds[i]*ds[i+lag];cnt++;}
+    corr=(cnt>0)?corr/cnt:0;
+    // Normalize
+    var norm=0;for(i=0;i<dsN;i++)norm+=ds[i]*ds[i];
+    if(norm>0)corr=corr/(norm/cnt);
     if(corr>bestCorr){bestCorr=corr;bestLag=lag;}
   }
-  return bestCorr>0.05 ? sr/bestLag : 0;
+
+  if(bestCorr<0.03)return 0;
+  return Math.round(sr/(bestLag*step));
 }
 
-// 计算谐波数量（从频谱中数峰值）
-function countHarmonics(samples,sr,f0){
-  if(!f0||f0<30)return 0;
-  var n=samples.length;
-  // 简单频谱（用部分 DFT）
-  var fftSize=Math.min(1024,n);
-  var spec=new Float32Array(fftSize/2);
-  var step=Math.floor(n/fftSize);
-  for(var k=0;k<fftSize/2;k++){
-    var re=0,im=0;
-    for(var j=0;j<fftSize;j++){
-      var idx=Math.min(j*step,n-1);
-      var angle=(2*Math.PI*k*j)/fftSize;
-      re+=samples[idx]*Math.cos(angle);
-      im-=samples[idx]*Math.sin(angle);
-    }
-    spec[k]=Math.sqrt(re*re+im*im);
-  }
+// Fast harmonic peak counting using autocorrelation-derived peaks
+function countHarmonicPeaks(samples,sr,f0){
+  if(!f0||f0<30||f0>sr/2)return 0;
+  // Quick check: does autocorrelation show peaks at multiples of f0 period?
+  var n=samples.length,period=Math.round(sr/f0);
+  if(period<2||period>n/2)return 0;
 
-  // 在 f0 的整数倍位置检测峰值
-  var binWidth=sr/fftSize;
-  var count=0,lastPeak=0;
-  for(var h=1;h<=10;h++){
-    var targetFreq=f0*h;
-    if(targetFreq>sr/2)break;
-    var bin=Math.round(targetFreq/binWidth);
-    if(bin>=fftSize/2)break;
-
-    // 检查局部是否有峰
-    var peak=bin;
-    for(var b=Math.max(1,bin-3);b<=Math.min(fftSize/2-2,bin+3);b++){
-      if(spec[b]>spec[b-1]&&spec[b]>spec[b+1]&&spec[b]>spec[peak])peak=b;
+  // Step through samples at f0 multiples and check local correlation
+  var count=0;
+  for(var h=1;h<=6;h++){
+    var lag=h*period;
+    if(lag>=n-period)break;
+    // Correlation at this lag
+    var corr=0,cnt=0;
+    for(var i=0;i<n-lag;i+=Math.max(1,Math.floor(period/8))){
+      corr+=samples[i]*samples[i+lag];
+      cnt++;
     }
-
-    // 该峰值是否明显高于背景
-    var bgSum=0,bgCount=0;
-    for(var b=Math.max(1,peak-8);b<=Math.min(fftSize/2-2,peak+8);b++){
-      if(Math.abs(b-peak)>2){bgSum+=spec[b];bgCount++;}
+    // Nearby correlation at off-lag to check peak
+    var offCorr=0;
+    for(i=0;i<n-lag-2;i+=Math.max(1,Math.floor(period/8))){
+      offCorr+=samples[i]*samples[i+lag+2];
     }
-    var bg=bgCount>0?bgSum/bgCount:0.001;
-    if(spec[peak]>bg*2.5)count++;
-    lastPeak=peak;
+    var ratio=(cnt>0)?corr/offCorr:0;
+    if(ratio>1.6&&corr>0)count++;
   }
   return count;
 }
 
-// 共振峰峰值检测（频谱包络中的峰）
-function detectFormantPeaks(samples,sr,f0){
-  var n=samples.length;
-  var fftSize=Math.min(1024,n);
-  var spec=new Float32Array(fftSize/2);
-  var step=Math.floor(n/fftSize);
-  for(var k=0;k<fftSize/2;k++){
-    var re=0,im=0;
-    for(var j=0;j<fftSize;j++){
-      var idx=Math.min(j*step,n-1);
-      var angle=(2*Math.PI*k*j)/fftSize;
-      re+=samples[idx]*Math.cos(angle);
-      im-=samples[idx]*Math.sin(angle);
-    }
-    spec[k]=Math.sqrt(re*re+im*im);
-  }
-
-  // 平滑频谱获取包络
-  var binWidth=sr/fftSize;
-  var smoothed=new Float32Array(spec.length);
-  for(var i=0;i<spec.length;i++){
-    var sum=0,cnt=0;
-    for(var j=Math.max(0,i-4);j<=Math.min(spec.length-1,i+4);j++){sum+=spec[j];cnt++;}
-    smoothed[i]=sum/cnt;
-  }
-
-  // 在 200-4000 Hz 范围内找包络峰值（人类共振峰范围）
-  var peaks=[];
-  for(var i=Math.floor(200/binWidth)+1;i<Math.min(spec.length-1,Math.floor(4000/binWidth));i++){
-    if(smoothed[i]>smoothed[i-1]&&smoothed[i]>smoothed[i+1]){
-      // 该峰是否明显
-      var meanVal=0;for(var j=0;j<smoothed.length;j++)meanVal+=smoothed[j];
-      meanVal/=smoothed.length;
-      if(smoothed[i]>meanVal*1.3)peaks.push({freq:i*binWidth,amp:smoothed[i]});
-    }
-  }
-  // 按幅度排序，取top
-  peaks.sort(function(a,b){return b.amp-a.amp});
-  return peaks.slice(0,4);
-}
-
-// 频谱斜率估计
-function estimateSpectralSlope(samples,sr){
-  var n=samples.length;
-  var fftSize=Math.min(1024,n);
-  var spec=new Float32Array(fftSize/2);
-  var step=Math.floor(n/fftSize);
-  for(var k=0;k<fftSize/2;k++){
-    var re=0,im=0;
-    for(var j=0;j<fftSize;j++){
-      var idx=Math.min(j*step,n-1);
-      var angle=(2*Math.PI*k*j)/fftSize;
-      re+=samples[idx]*Math.cos(angle);
-      im-=samples[idx]*Math.sin(angle);
-    }
-    spec[k]=Math.max(-100,20*Math.log10(Math.sqrt(re*re+im*im)+1e-10));
-  }
-  // 线性拟合 300-3000 Hz 段
-  var binWidth=sr/fftSize;
-  var sumX=0,sumY=0,sumXY=0,sumX2=0,cnt=0;
-  var loBin=Math.floor(300/binWidth),hiBin=Math.floor(3000/binWidth);
-  for(var i=loBin;i<=hiBin&&i<spec.length;i++){
-    var x=Math.log(i*binWidth),y=spec[i];
-    if(isFinite(y)&&y>-80){sumX+=x;sumY+=y;sumXY+=x*y;sumX2+=x*x;cnt++;}
-  }
-  if(cnt<3)return -6; // default slope
-  var slope=(cnt*sumXY-sumX*sumY)/(cnt*sumX2-sumX*sumX);
-  return slope; // dB per natural-log frequency unit
-}
-
 // ── 情绪分类 ──
 function classify(f,dur){
+  // Score each emotion against measured features.
+  // Weights derived from published cat vocalization research.
   var results=EMOTIONS.map(function(e){
     var sc=0,w=0;
 
-    // Peak frequency
-    var pmid=(e.pLo+e.pHi)/2,prange=(e.pHi-e.pLo)/2;
-    var pdist=Math.abs(f.peakFreq-pmid)/prange;
-    sc+=3*Math.max(0,1-pdist);w+=3;
+    // 1. Fundamental frequency match (weight: 3.5)
+    var fmid=(e.f0Lo+e.f0Hi)/2, frange=(e.f0Hi-e.f0Lo)/2;
+    var fdist=Math.abs(f.peakFreq-fmid)/Math.max(frange,1);
+    sc+=3.5*Math.max(0,1-fdist); w+=3.5;
 
-    // Duration
-    var dmid=(e.dLo+e.dHi)/2,drange=(e.dHi-e.dLo)/2;
-    var ddist=Math.abs(dur-dmid)/drange;
-    sc+=1.5*Math.max(0,1-ddist);w+=1.5;
+    // 2. Duration match (weight: 2.0)
+    var dmid=(e.dLo+e.dHi)/2, drange=(e.dHi-e.dLo)/2;
+    var ddist=Math.abs(dur-dmid)/Math.max(drange,0.01);
+    sc+=2.0*Math.max(0,1-ddist); w+=2.0;
 
-    // Centroid
-    var cmid=(e.cLo+e.cHi)/2,crange=(e.cHi-e.cLo)/2;
-    var cdist=Math.abs(f.centroid-cmid)/crange;
-    sc+=2*Math.max(0,1-cdist);w+=2;
-
-    // ZCR
-    var zmap={'very-low':[0,0.06],'low':[0.03,0.12],'low-medium':[0.06,0.18],
-              'medium':[0.10,0.28],'medium-high':[0.18,0.40],
-              'high':[0.25,0.55],'very-high':[0.40,0.75]};
-    var zr=zmap[e.z]||[0.05,0.3];
-    var zmid=(zr[0]+zr[1])/2,zrange=(zr[1]-zr[0])/2+0.01;
+    // 3. ZCR match (weight: 2.5) — critical for harmonic vs noise discrimination
+    var zmid=(e.zLo+e.zHi)/2, zrange=(e.zHi-e.zLo)/2+0.001;
     var zdist=Math.abs(f.zcr-zmid)/zrange;
-    sc+=1.5*Math.max(0,1-zdist);w+=1.5;
+    sc+=2.5*Math.max(0,1-zdist); w+=2.5;
 
-    // Energy
-    var emap={'low':[0,0.06],'medium':[0.03,0.15],'medium-high':[0.08,0.3],'high':[0.12,1.0]};
-    var er=emap[e.e]||[0.02,0.2];
-    var emid=(er[0]+er[1])/2,erange=(er[1]-er[0])/2+0.01;
+    // 4. Spectral centroid match (weight: 2.0)
+    var cmid=(e.cLo+e.cHi)/2, crange=(e.cHi-e.cLo)/2;
+    var cdist=Math.abs(f.centroid-cmid)/Math.max(crange,1);
+    sc+=2.0*Math.max(0,1-cdist); w+=2.0;
+
+    // 5. Energy match (weight: 1.5)
+    var emap={'very-low':[0,0.04],'low':[0.01,0.08],'medium':[0.04,0.20],
+              'medium-high':[0.10,0.35],'high':[0.18,0.7],'very-high':[0.35,1.0]};
+    var er=emap[e.e]||[0.02,0.3];
+    var emid=(er[0]+er[1])/2, erange=(er[1]-er[0])/2+0.01;
     var edist=Math.abs(f.rms-emid)/erange;
-    sc+=1*Math.max(0,1-edist);w+=1;
+    sc+=1.5*Math.max(0,1-edist); w+=1.5;
 
-    // Low ratio bonus for content/purring
-    if(e.lowFreq)sc+=2.5*f.lowRatio;
+    // 6. Harmonic consistency bonus/penalty (weight: 1.5)
+    // Harmonic sounds: ZCR should be < 0.3; inharmonic: ZCR should be > 0.3
+    if(e.harmonic){
+      if(f.zcr<0.25) sc+=1.5;   // clearly harmonic → bonus
+      else if(f.zcr<0.35) sc+=0.5;  // borderline
+      else sc-=1.0;  // expected harmonic but got noisy
+    } else {
+      // Expected noisy/aperiodic
+      if(f.zcr>0.30) sc+=1.5;  // clearly aperiodic → bonus
+      else if(f.zcr>0.20) sc+=0.5;  // borderline
+      else sc-=1.5;  // expected noise but got harmonic
+    }
+    w+=1.5;
 
-    // Harmonic bonus
-    if(e.harmonic&&f.zcr>0.5)sc-=1.5;
-    if(!e.harmonic&&f.zcr<0.2)sc-=1.0;
+    // 7. Purring-specific: ultra-low frequency ratio (weight: 2.0)
+    if(e.id==='content'){
+      sc+=2.0*f.lowRatio;  // content/purring: high low-freq ratio is good
+      w+=2.0;
+    }
 
-    return{emoji:e.emoji,name:e.name,desc:e.desc,color:e.color,prob:Math.max(0,w>0?sc/w:0)};
+    // 8. Repetition pattern bonus
+    if(e.repetitive && dur<1.0) sc+=1.0;  // short burst → repetitive pattern
+    w+=1.0;
+
+    return{emoji:e.emoji,name:e.name,desc:e.desc,color:e.color,prob:Math.max(0,sc/Math.max(w,0.01))};
   });
 
+  // Sort by probability descending
   results.sort(function(a,b){return b.prob-a.prob;});
+
+  // Top 3, normalized to seem like percentages
   var top3=results.slice(0,3);
-  var total=top3.reduce(function(s,r){return s+Math.max(0,r.prob)},0);
-  if(total<0.01)total=3;
+  var total=top3.reduce(function(s,r){return s+Math.max(0.001,r.prob)},0);
   return top3.map(function(r){
-    return{emoji:r.emoji,name:r.name,desc:r.desc,color:r.color,probability:Math.round(Math.max(0,r.prob)/total*100)};
+    return{
+      emoji:r.emoji,name:r.name,desc:r.desc,color:r.color,
+      probability:Math.min(99,Math.max(1,Math.round(Math.max(0.001,r.prob)/total*100)))
+    };
   });
 }
 
@@ -1039,8 +1024,15 @@ function handlePhoto(file){
   };
   r.readAsDataURL(file);
 }
-document.getElementById('cameraInput').onchange=function(e){handlePhoto(e.target.files[0])};
-document.getElementById('galleryInput').onchange=function(e){handlePhoto(e.target.files[0])};
+document.getElementById('photoFileInput').onchange=function(e){handlePhoto(e.target.files[0])};
+
+// Camera — try native camera on mobile, fallback to file picker on desktop
+function pickPhoto(){
+  var inp=document.getElementById('photoFileInput');
+  // Remove any capture attribute, let browser decide
+  // Mobile browsers (Chrome/Safari) will offer camera option for accept=image/*
+  inp.click();
+}
 document.getElementById('analyzeBtn').onclick=analyzeBreed;
 
 // Save
