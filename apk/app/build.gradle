@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'org.cc.pomodoro'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "org.cc.pomodoro"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Copy pomodoro.html from repo root into assets before building
+    task copyHtml(type: Copy) {
+        from rootProject.projectDir.parentFile
+        include 'pomodoro.html'
+        into 'src/main/assets'
+        rename { 'index.html' }
+    }
+    preBuild.dependsOn copyHtml
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core:1.12.0'
+    implementation 'androidx.webkit:webkit:1.9.0'
+}

@@ -265,6 +265,28 @@ let intervalId      = null;
 let soundEnabled    = true;
 let notificationOk  = false;
 
+// ── Android WebView Bridge ──────────────────────
+const isAndroidApp = typeof PomodoroBridge !== 'undefined';
+
+function vibrateDevice(ms) {
+  if (isAndroidApp) { PomodoroBridge.vibrate(ms); return; }
+  if (navigator.vibrate) { navigator.vibrate(ms); }
+}
+
+function sendAppNotification(title, body) {
+  if (isAndroidApp) { PomodoroBridge.sendNotification(title, body); return; }
+  if (Notification.permission === "granted") {
+    new Notification(title, { body, icon: "🍅" });
+  }
+}
+
+function keepScreenOn(enable) {
+  if (isAndroidApp) { PomodoroBridge.keepScreenOn(enable); return; }
+  if (enable && 'wakeLock' in navigator) {
+    try { navigator.wakeLock.request('screen').catch(()=>{}); } catch (_) {}
+  }
+}
+
 // ── 音频 (Web Audio 生成提示音) ──────────────────
 let audioCtx = null;
 function getAudioCtx() {
@@ -298,11 +320,7 @@ function playTripleBeep() {
 }
 
 // ── 通知 ─────────────────────────────────────────
-function sendNotification(title, body) {
-  if (Notification.permission === "granted") {
-    new Notification(title, { body, icon: "🍅" });
-  }
-}
+// sendNotification replaced by sendAppNotification (Android bridge-aware)
 
 function checkNotificationPerm() {
   if (Notification.permission === "granted") {
@@ -401,6 +419,7 @@ function startTimer() {
   // 首次点击时激活 AudioContext
   if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
   timerState = "running";
+  keepScreenOn(true);
   updateCtrlButtons();
   updateDisplay();
   intervalId = setInterval(tick, 1000);
@@ -410,6 +429,7 @@ function pauseTimer() {
   if (timerState !== "running") return;
   timerState = "paused";
   stopTimer();
+  keepScreenOn(false);
   updateCtrlButtons();
   updateDisplay();
 }
@@ -417,6 +437,7 @@ function pauseTimer() {
 function resetTimer() {
   stopTimer();
   timerState = "idle";
+  keepScreenOn(false);
   const times = { work: WORK_TIME, short_break: SHORT_BREAK, long_break: LONG_BREAK };
   timeLeft  = times[currentMode];
   totalTime = times[currentMode];
@@ -447,10 +468,12 @@ function onTimerFinished() {
 
   // 提示
   playTripleBeep();
-  sendNotification(
+  vibrateDevice(300);
+  sendAppNotification(
     "🍅 番茄钟",
     currentMode === "work" ? "工作时间结束，休息一下吧！" : "休息结束，开始新的番茄！"
   );
+  keepScreenOn(false);
 
   // 自动切换
   if (currentMode === "work") {

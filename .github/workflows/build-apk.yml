@@ -3,54 +3,78 @@ name: Build Android APK
 on:
   push:
     branches: [master, main]
-  # 允许手动触发
+    paths:
+      - 'apk/**'
+      - 'pomodoro.html'
+      - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      ANDROID_SDK_ROOT: /home/runner/android-sdk
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          python-version: '3.10'
+          java-version: '17'
+          distribution: 'temurin'
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            git zip unzip openjdk-17-jdk-headless \
-            autoconf libtool pkg-config zlib1g-dev \
-            libncurses5-dev libncursesw5-dev cmake \
-            libffi-dev libssl-dev libltdl-dev
-
-      - name: Install buildozer
-        run: pip install buildozer cython
-
-      - name: Cache Android SDK/NDK
+      - name: Cache Android SDK
         uses: actions/cache@v4
-        id: cache-android
+        id: cache-sdk
         with:
-          path: ~/.buildozer
-          key: android-sdk-${{ hashFiles('android_pomodoro/buildozer.spec') }}
-          restore-keys: |
-            android-sdk-
+          path: /home/runner/android-sdk
+          key: android-sdk-v2-${{ runner.os }}
 
-      - name: Build APK
-        working-directory: android_pomodoro
+      - name: Download Android command-line tools
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
-          export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
-          echo "JAVA_HOME=$JAVA_HOME"
-          java -version 2>&1
-          yes | buildozer android debug
+          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+          cd $ANDROID_SDK_ROOT/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-*.zip
+          mv cmdline-tools latest
+          rm commandlinetools-linux-*.zip
+
+      - name: Install Android SDK packages
+        run: |
+          # Accept licenses
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1
+          # Install platform + build-tools
+          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            > /dev/null 2>&1
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('apk/**/*.gradle*') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Generate Gradle wrapper
+        working-directory: apk
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gradle
+          gradle wrapper --gradle-version 8.4
+
+      - name: Build debug APK
+        working-directory: apk
+        run: ./gradlew assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: pomodoro-apk
-          path: android_pomodoro/bin/*.apk
+          path: apk/app/build/outputs/apk/debug/*.apk
