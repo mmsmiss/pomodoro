@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🐱 猫咪情绪识别器</title>
+<style>
+:root {
+  --bg: #1a1a2e; --card: #252540; --surface: #2d2d4a;
+  --text: #e8e8f0; --sub: #a0a0c0; --mute: #6a6a88;
+  --orange: #f4a460; --amber: #ffb347; --warm: #ff8c52;
+  --pink: #ff7093; --green: #7ec8a0; --blue: #6cb4ee;
+  --purple: #b39dff; --red: #ff6b6b;
+  --radius: 16px; --shadow: 0 4px 24px rgba(0,0,0,0.3);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  display:flex; justify-content:center; min-height:100vh;
+  user-select:none; -webkit-user-select:none;
+}
+.app { width:100%; max-width:420px; padding:16px 16px 80px; }
+
+/* Header */
+.header { text-align:center; padding:20px 0 12px; }
+.header h1 { font-size:24px; letter-spacing:2px; }
+.header .sub { font-size:12px; color:var(--sub); margin-top:4px; }
+
+/* Tabs */
+.tab-bar {
+  position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+  width:100%; max-width:420px; background:var(--surface);
+  display:flex; padding:8px 0 env(safe-area-inset-bottom,8px);
+  border-top:1px solid rgba(255,255,255,0.06); z-index:100;
+}
+.tab-btn {
+  flex:1; display:flex; flex-direction:column; align-items:center;
+  gap:2px; padding:6px 0; border:none; background:none;
+  color:var(--mute); font-size:10px; cursor:pointer;
+  transition:color 0.2s;
+}
+.tab-btn.active { color:var(--orange); }
+.tab-btn .icon { font-size:22px; }
+
+/* Panels */
+.panel { display:none; }
+.panel.active { display:block; animation:fadeIn 0.3s; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:translateY(0);} }
+
+/* Card */
+.card {
+  background:var(--card); border-radius:var(--radius);
+  padding:20px; margin:12px 0; box-shadow:var(--shadow);
+}
+.card h3 { font-size:15px; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+
+/* Mic Button */
+.mic-area { display:flex; flex-direction:column; align-items:center; padding:24px 0; }
+.mic-btn {
+  width:96px; height:96px; border-radius:50%; border:4px solid var(--orange);
+  background:var(--surface); color:var(--orange); font-size:40px;
+  cursor:pointer; transition:all 0.25s; display:flex;
+  align-items:center; justify-content:center;
+  box-shadow:0 0 30px rgba(244,164,96,0.2);
+}
+.mic-btn.recording {
+  background:var(--red); border-color:var(--red); color:#fff;
+  animation:pulse 1.2s infinite; box-shadow:0 0 40px rgba(255,107,107,0.4);
+}
+@keyframes pulse {
+  0%,100% { transform:scale(1); }
+  50% { transform:scale(1.08); }
+}
+.mic-hint { margin-top:12px; font-size:13px; color:var(--sub); }
+
+/* Waveform */
+.wave-canvas {
+  width:100%; height:80px; border-radius:12px;
+  background:var(--surface); margin:12px 0;
+}
+
+/* Timer */
+.rec-timer { font-size:28px; font-family:"SF Mono","Consolas",monospace; color:var(--red); }
+
+/* Results */
+.result-item {
+  display:flex; align-items:center; gap:12px; padding:10px 0;
+  border-bottom:1px solid rgba(255,255,255,0.05);
+}
+.result-item:last-child { border:none; }
+.result-emoji { font-size:36px; min-width:48px; text-align:center; }
+.result-info { flex:1; }
+.result-name { font-size:15px; font-weight:600; }
+.result-desc { font-size:11px; color:var(--sub); margin-top:2px; }
+.result-bar-bg {
+  height:6px; border-radius:3px; background:var(--surface);
+  margin-top:6px; overflow:hidden;
+}
+.result-bar-fg { height:100%; border-radius:3px; transition:width 0.6s; }
+.result-pct { font-size:18px; font-weight:700; min-width:48px; text-align:right; }
+
+/* Photo area */
+.photo-preview {
+  width:100%; height:220px; border-radius:var(--radius);
+  background:var(--surface); display:flex; align-items:center;
+  justify-content:center; overflow:hidden; margin:12px 0;
+  cursor:pointer; border:2px dashed var(--mute);
+}
+.photo-preview img { width:100%; height:100%; object-fit:cover; }
+.photo-preview .placeholder { font-size:48px; color:var(--mute); }
+
+.btn {
+  display:block; width:100%; padding:14px; border:none;
+  border-radius:12px; font-size:15px; font-weight:600;
+  cursor:pointer; transition:opacity 0.2s; margin:8px 0;
+}
+.btn:active { opacity:0.8; }
+.btn-primary { background:var(--orange); color:#1a1a2e; }
+.btn-secondary { background:var(--surface); color:var(--text); }
+.btn-small {
+  display:inline-block; padding:8px 16px; border:none;
+  border-radius:8px; font-size:12px; font-weight:600;
+  cursor:pointer; background:var(--surface); color:var(--text);
+}
+
+/* Cat list */
+.cat-card {
+  background:var(--card); border-radius:var(--radius);
+  padding:16px; margin:8px 0; display:flex; gap:12px;
+  align-items:center; cursor:pointer; transition:transform 0.15s;
+}
+.cat-card:active { transform:scale(0.98); }
+.cat-avatar {
+  width:56px; height:56px; border-radius:50%; background:var(--surface);
+  display:flex; align-items:center; justify-content:center;
+  font-size:28px; overflow:hidden; flex-shrink:0;
+}
+.cat-avatar img { width:100%; height:100%; object-fit:cover; }
+.cat-info { flex:1; }
+.cat-name { font-size:15px; font-weight:600; }
+.cat-meta { font-size:11px; color:var(--sub); margin-top:2px; }
+
+/* Modal */
+.modal-overlay {
+  position:fixed; top:0;left:0;width:100%;height:100%;
+  background:rgba(0,0,0,0.6); z-index:200;
+  display:flex; align-items:center; justify-content:center;
+  animation:fadeIn 0.2s;
+}
+.modal {
+  background:var(--card); border-radius:var(--radius); padding:24px;
+  width:90%; max-width:360px; box-shadow:var(--shadow);
+}
+.modal h3 { margin-bottom:16px; }
+.modal input {
+  width:100%; padding:12px; border-radius:10px; border:1px solid var(--mute);
+  background:var(--surface); color:var(--text); font-size:14px; margin:6px 0;
+}
+.modal .btn-row { display:flex; gap:8px; margin-top:16px; }
+.modal .btn-row .btn { flex:1; }
+
+/* Breed grid */
+.breed-grid {
+  display:grid; grid-template-columns:repeat(2,1fr); gap:8px;
+}
+.breed-chip {
+  background:var(--surface); border-radius:10px; padding:10px;
+  text-align:center; cursor:pointer; transition:background 0.2s;
+  font-size:12px;
+}
+.breed-chip:active { background:var(--orange); color:#1a1a2e; }
+.breed-chip .emoji { font-size:28px; display:block; margin-bottom:4px; }
+
+/* Loading spinner */
+.spinner {
+  width:32px; height:32px; border:3px solid var(--surface);
+  border-top-color:var(--orange); border-radius:50%;
+  animation:spin 0.8s linear infinite; margin:16px auto;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Hidden file input */
+#photoInput { display:none; }
+
+/* Empty state */
+.empty { text-align:center; padding:40px 20px; color:var(--mute); }
+.empty .icon { font-size:56px; margin-bottom:12px; }
+
+/* Toast */
+.toast {
+  position:fixed; top:20px; left:50%; transform:translateX(-50%);
+  background:var(--green); color:#1a1a2e; padding:10px 24px;
+  border-radius:20px; font-size:13px; font-weight:600;
+  z-index:300; animation:toastIn 0.3s, toastOut 0.3s 1.7s forwards;
+}
+@keyframes toastIn { from{opacity:0;transform:translateX(-50%) translateY(-20px);} }
+@keyframes toastOut { to{opacity:0;transform:translateX(-50%) translateY(-20px);} }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <div class="header">
+    <h1>🐱 猫咪情绪识别</h1>
+    <div class="sub">听懂你的猫在说什么</div>
+  </div>
+
+  <!-- 🎤 录音分析 -->
+  <div class="panel active" id="panel-record">
+    <div class="card">
+      <h3>🎤 喵叫分析</h3>
+      <div class="mic-area">
+        <button class="mic-btn" id="micBtn" title="点击开始录音">🎙️</button>
+        <div class="mic-hint" id="micHint">点击开始录音</div>
+        <div class="rec-timer" id="recTimer" style="display:none">00:00</div>
+      </div>
+      <canvas class="wave-canvas" id="waveCanvas"></canvas>
+      <div id="resultsArea"></div>
+      <div id="recordingActions" style="display:none">
+        <button class="btn btn-secondary btn-small" id="saveToCatBtn" style="display:none">💾 保存到猫咪档案</button>
+      </div>
+    </div>
+    <div class="card" style="font-size:12px;color:var(--sub);line-height:1.8;">
+      <strong>💡 使用技巧</strong><br>
+      • 猫咪叫的时候靠近录音，效果最好<br>
+      • 远离环境噪音，关掉电视/音乐<br>
+      • 每次录 2-5 秒就够了<br>
+      • 不同场景多录几次，结果会更准
+    </div>
+  </div>
+
+  <!-- 📸 品种识别 -->
+  <div class="panel" id="panel-breed">
+    <div class="card">
+      <h3>📸 拍照识别品种</h3>
+      <div class="photo-preview" id="photoPreview" onclick="document.getElementById('photoInput').click()">
+        <span class="placeholder">📷</span>
+      </div>
+      <input type="file" id="photoInput" accept="image/*" capture="environment">
+      <button class="btn btn-primary" id="analyzeBreedBtn" disabled>🔍 识别品种</button>
+      <div id="breedResults"></div>
+    </div>
+  </div>
+
+  <!-- 🐱 我的猫咪 -->
+  <div class="panel" id="panel-cats">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;">
+      <h3 style="margin:0">🐱 我的猫咪</h3>
+      <button class="btn btn-small btn-primary" id="addCatBtn" style="width:auto;margin:0">＋ 添加猫咪</button>
+    </div>
+    <div id="catList"></div>
+  </div>
+
+  <!-- 📖 品种图鉴 -->
+  <div class="panel" id="panel-guide">
+    <h3 style="margin:12px 0">📖 猫咪品种图鉴</h3>
+    <div class="breed-grid" id="breedGrid"></div>
+    <div class="card" style="margin-top:12px">
+      <h3>🔊 叫声情绪对照</h3>
+      <div style="font-size:12px;line-height:2;color:var(--sub)">
+        😾 <b>愤怒/威胁</b> — 嘶嘶声，高频噪声<br>
+        😿 <b>痛苦/不适</b> — 长嚎，高能量持续<br>
+        🐱 <b>寻求关注</b> — 短促上扬，中高频<br>
+        😌 <b>满足/放松</b> — 咕噜声，超低频震动<br>
+        🚨 <b>发情/领地</b> — 持续长嚎，响亮<br>
+        🍼 <b>饥饿/乞食</b> — 短促重复，急切<br>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <button class="tab-btn active" data-panel="panel-record"><span class="icon">🎤</span>录音</button>
+    <button class="tab-btn" data-panel="panel-breed"><span class="icon">📸</span>品种</button>
+    <button class="tab-btn" data-panel="panel-cats"><span class="icon">🐱</span>我的猫</button>
+    <button class="tab-btn" data-panel="panel-guide"><span class="icon">📖</span>图鉴</button>
+  </div>
+</div>
+
+<!-- Add Cat Modal -->
+<div class="modal-overlay" id="addCatModal" style="display:none">
+  <div class="modal">
+    <h3>🐱 添加猫咪</h3>
+    <input type="text" id="catNameInput" placeholder="猫咪名字" maxlength="20">
+    <div class="photo-preview" id="catPhotoPreview" style="height:160px" onclick="document.getElementById('catPhotoInput').click()">
+      <span class="placeholder">📷</span>
+    </div>
+    <input type="file" id="catPhotoInput" accept="image/*" capture="environment" style="display:none">
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="cancelAddCat">取消</button>
+      <button class="btn btn-primary" id="confirmAddCat">添加</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  🐱 猫咪情绪识别器 - 完整引擎
+// ============================================================
+
+// ── 常量 ──────────────────────────────────────────
+const SAMPLE_RATE = 16000;  // 16kHz 足够语音分析，节省存储
+const MAX_REC_SEC = 10;     // 最长录 10 秒
+
+const EMOTIONS = [
+  { id:'attention', emoji:'🐱', name:'寻求关注', desc:'想和你玩，或想要摸摸',
+    color:'#f4a460', peakRange:[400,900], durRange:[0.2,1.2], centroidRange:[500,1200],
+    zcr:'medium', energy:'medium', harmonic:true },
+  { id:'hungry', emoji:'🍼', name:'饥饿/乞食', desc:'饿了想吃东西',
+    color:'#ff8c52', peakRange:[500,1000], durRange:[0.2,0.8], centroidRange:[600,1300],
+    zcr:'medium-high', energy:'medium-high', harmonic:true, repetitive:true },
+  { id:'pain', emoji:'😿', name:'痛苦/不适', desc:'可能不舒服或受伤了',
+    color:'#ff6b6b', peakRange:[300,800], durRange:[1.5,5], centroidRange:[400,900],
+    zcr:'low-medium', energy:'high', harmonic:true },
+  { id:'angry', emoji:'😾', name:'愤怒/威胁', desc:'感到威胁，别靠近',
+    color:'#ff4757', peakRange:[2000,8000], durRange:[0.3,3], centroidRange:[3000,6000],
+    zcr:'very-high', energy:'medium', harmonic:false },
+  { id:'content', emoji:'😌', name:'满足/放松', desc:'很舒服，心情好',
+    color:'#7ec8a0', peakRange:[20,80], durRange:[2,30], centroidRange:[50,300],
+    zcr:'very-low', energy:'low', harmonic:true, lowFreq:true },
+  { id:'mating', emoji:'🚨', name:'发情/领地', desc:'发情期或宣示领地',
+    color:'#b39dff', peakRange:[350,700], durRange:[1.5,6], centroidRange:[300,800],
+    zcr:'low', energy:'high', harmonic:true },
+];
+
+const CAT_BREEDS = [
+  { emoji:'🐱', name:'中华田园猫', traits:'适应力强，叫声多样', vocal:'中频，变化丰富' },
+  { emoji:'😺', name:'暹罗猫', traits:'社交强，话多爱叫', vocal:'高频，响亮，频繁' },
+  { emoji:'🐈', name:'波斯猫', traits:'安静温和，少叫', vocal:'低频，轻柔，偶尔' },
+  { emoji:'😸', name:'英短', traits:'沉稳独立', vocal:'中低频，温和' },
+  { emoji:'😻', name:'布偶猫', traits:'粘人温顺', vocal:'轻柔，中低频' },
+  { emoji:'😽', name:'美短', traits:'活泼好奇', vocal:'中频，不高不低' },
+  { emoji:'😼', name:'缅因猫', traits:'体型大，温和', vocal:'低频，咕噜声大' },
+  { emoji:'🙀', name:'斯芬克斯猫', traits:'无毛，粘人', vocal:'中高频，爱交流' },
+  { emoji:'😿', name:'苏格兰折耳', traits:'安静温柔', vocal:'很低频，咕噜为主' },
+  { emoji:'😾', name:'孟加拉猫', traits:'活力充沛', vocal:'中频，偶尔嚎叫' },
+  { emoji:'🐱‍👤', name:'橘猫', traits:'贪吃温顺', vocal:'求食叫声频繁' },
+  { emoji:'🐱‍🐉', name:'黑猫', traits:'聪明独立', vocal:'中低频' },
+  { emoji:'🐱‍👓', name:'奶牛猫', traits:'活泼好动', vocal:'中频，爱叫' },
+  { emoji:'🐱‍🚀', name:'三花猫', traits:'温顺亲人', vocal:'中频柔和' },
+  { emoji:'🐱‍🏍', name:'俄罗斯蓝猫', traits:'安静害羞', vocal:'很轻，少叫' },
+  { emoji:'🐅', name:'挪威森林猫', traits:'独立安静', vocal:'低频咕噜' },
+  { emoji:'🦁', name:'阿比西尼亚猫', traits:'好奇活跃', vocal:'中频，咕噜多' },
+  { emoji:'🐆', name:'东方短毛猫', traits:'社交话多', vocal:'高频响亮' },
+  { emoji:'🐯', name:'土耳其梵猫', traits:'爱玩水', vocal:'中频' },
+  { emoji:'🐈‍⬛', name:'德文卷毛猫', traits:'粘人活泼', vocal:'中高频' },
+];
+
+// ── 状态 ──────────────────────────────────────────
+let audioCtx = null;
+let mediaStream = null;
+let mediaRecorder = null;
+let analyserNode = null;
+let recordedChunks = [];
+let recordingStart = 0;
+let recInterval = null;
+let animFrame = null;
+let lastResult = null;
+let catPhotoData = null;
+
+// ── 音频引擎 ──────────────────────────────────────
+
+async function ensureAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+  }
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  return audioCtx;
+}
+
+async function startRecording() {
+  try {
+    recordedChunks = [];
+    const ctx = await ensureAudioCtx();
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { sampleRate: SAMPLE_RATE, channelCount: 1, echoCancellation: true, noiseSuppression: false }
+    });
+
+    const source = ctx.createMediaStreamSource(mediaStream);
+    analyserNode = ctx.createAnalyser();
+    analyserNode.fftSize = 2048;
+    analyserNode.smoothingTimeConstant = 0.3;
+    source.connect(analyserNode);
+
+    // Also record via MediaRecorder for buffer analysis
+    mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm;codecs=opus' });
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = () => analyzeRecording();
+    mediaRecorder.start(100);
+
+    recordingStart = Date.now();
+    document.getElementById('micBtn').classList.add('recording');
+    document.getElementById('micBtn').textContent = '⏹️';
+    document.getElementById('micHint').textContent = '录音中…再点一次停止';
+    document.getElementById('recTimer').style.display = 'block';
+    document.getElementById('resultsArea').innerHTML = '';
+    document.getElementById('saveToCatBtn').style.display = 'none';
+
+    updateTimer();
+    recInterval = setInterval(updateTimer, 200);
+    drawWaveform();
+
+    return true;
+  } catch (err) {
+    console.error('Mic error:', err);
+    document.getElementById('micHint').textContent = '⚠️ 无法访问麦克风，请授权';
+    return false;
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+  }
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+  if (recInterval) { clearInterval(recInterval); recInterval = null; }
+  if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+
+  document.getElementById('micBtn').classList.remove('recording');
+  document.getElementById('micBtn').textContent = '🎙️';
+  document.getElementById('micHint').textContent = '分析中…';
+  document.getElementById('recTimer').style.display = 'none';
+  clearWaveform();
+}
+
+function updateTimer() {
+  const elapsed = ((Date.now() - recordingStart) / 1000).toFixed(1);
+  document.getElementById('recTimer').textContent = `00:${elapsed.padStart(4,'0')}`;
+  if (elapsed >= MAX_REC_SEC) stopRecording();
+}
+
+// ── 波形绘制 ──────────────────────────────────────
+
+function drawWaveform() {
+  const canvas = document.getElementById('waveCanvas');
+  const ctx2d = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * devicePixelRatio;
+  canvas.height = canvas.offsetHeight * devicePixelRatio;
+  ctx2d.scale(devicePixelRatio, devicePixelRatio);
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+
+  function frame() {
+    if (!analyserNode) return;
+    const data = new Uint8Array(analyserNode.fftSize);
+    analyserNode.getByteTimeDomainData(data);
+
+    ctx2d.clearRect(0, 0, W, H);
+    ctx2d.beginPath();
+    ctx2d.strokeStyle = '#f4a460';
+    ctx2d.lineWidth = 2;
+    ctx2d.shadowColor = 'rgba(244,164,96,0.4)';
+    ctx2d.shadowBlur = 6;
+
+    const slice = Math.floor(data.length / W);
+    for (let x = 0; x < W; x++) {
+      const i = x * slice;
+      let sum = 0;
+      for (let j = 0; j < slice; j++) sum += data[Math.min(i + j, data.length - 1)];
+      const avg = sum / slice;
+      const y = (avg / 255) * H;
+      if (x === 0) ctx2d.moveTo(x, y);
+      else ctx2d.lineTo(x, y);
+    }
+    ctx2d.stroke();
+    ctx2d.shadowBlur = 0;
+    animFrame = requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+function clearWaveform() {
+  const canvas = document.getElementById('waveCanvas');
+  const ctx2d = canvas.getContext('2d');
+  ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+// ── 特征提取与分析 ────────────────────────────────
+
+async function analyzeRecording() {
+  document.getElementById('micHint').textContent = '分析中…';
+  if (recordedChunks.length === 0) {
+    document.getElementById('micHint').textContent = '没录到声音，重试';
+    return;
+  }
+
+  try {
+    const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+    const arrayBuffer = await blob.arrayBuffer();
+    const ctx = await ensureAudioCtx();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+    const features = extractFeatures(audioBuffer);
+    const results = classifyEmotions(features, audioBuffer.duration);
+
+    lastResult = { features, results, timestamp: Date.now(), duration: audioBuffer.duration };
+    showResults(results);
+    document.getElementById('micHint').textContent = '点击开始录音';
+    document.getElementById('saveToCatBtn').style.display = 'inline-block';
+  } catch (err) {
+    console.error('Analysis error:', err);
+    document.getElementById('micHint').textContent = '分析失败，请重试';
+  }
+}
+
+function extractFeatures(buffer) {
+  const samples = buffer.getChannelData(0);
+  const sr = buffer.sampleRate;
+  const n = samples.length;
+
+  // RMS energy
+  let sumSq = 0;
+  for (let i = 0; i < n; i++) sumSq += samples[i] * samples[i];
+  const rms = Math.sqrt(sumSq / n);
+
+  // Zero-crossing rate
+  let zcr = 0;
+  for (let i = 1; i < n; i++) {
+    if ((samples[i] >= 0 && samples[i-1] < 0) || (samples[i] < 0 && samples[i-1] >= 0)) zcr++;
+  }
+  zcr = zcr / n;
+
+  // Spectral analysis via FFT (use a simple DFT for key bins)
+  const fftSize = 2048;
+  const fft = simpleFFT(samples, fftSize);
+  const magnitudes = [];
+  for (let i = 0; i < fftSize / 2; i++) {
+    magnitudes[i] = Math.sqrt(fft[i].real * fft[i].real + fft[i].imag * fft[i].imag);
+  }
+
+  // Peak frequency
+  let peakIdx = 0, peakMag = 0;
+  for (let i = 1; i < magnitudes.length; i++) {
+    if (magnitudes[i] > peakMag) { peakMag = magnitudes[i]; peakIdx = i; }
+  }
+  const peakFreq = (peakIdx / fftSize) * sr;
+
+  // Spectral centroid
+  let centroidNum = 0, centroidDen = 0;
+  for (let i = 0; i < magnitudes.length; i++) {
+    const freq = (i / fftSize) * sr;
+    centroidNum += freq * magnitudes[i];
+    centroidDen += magnitudes[i];
+  }
+  const centroid = centroidDen > 0 ? centroidNum / centroidDen : 0;
+
+  // Low frequency ratio (energy below 150Hz / total)
+  const lowFreqBin = Math.floor(150 / (sr / fftSize));
+  let lowEnergy = 0, totalEnergy = 0;
+  for (let i = 0; i < magnitudes.length; i++) {
+    totalEnergy += magnitudes[i];
+    if (i <= lowFreqBin) lowEnergy += magnitudes[i];
+  }
+  const lowFreqRatio = totalEnergy > 0 ? lowEnergy / totalEnergy : 0;
+
+  return { rms, zcr, peakFreq, centroid, lowFreqRatio, sampleRate: sr, nSamples: n };
+}
+
+// Simple DFT for spectral analysis (only compute needed bins)
+function simpleFFT(samples, size) {
+  const step = Math.floor(samples.length / size);
+  const result = [];
+  for (let k = 0; k < size / 2; k++) {
+    let real = 0, imag = 0;
+    for (let n = 0; n < size; n++) {
+      const idx = Math.min(n * step, samples.length - 1);
+      const angle = (2 * Math.PI * k * n) / size;
+      real += samples[idx] * Math.cos(angle);
+      imag -= samples[idx] * Math.sin(angle);
+    }
+    result[k] = { real, imag };
+  }
+  return result;
+}
+
+function classifyEmotions(features, duration) {
+  const results = EMOTIONS.map(e => {
+    let score = 0;
+    let weights = 0;
+
+    // Peak frequency match
+    if (e.peakRange) {
+      const [lo, hi] = e.peakRange;
+      const mid = (lo + hi) / 2;
+      const dist = Math.abs(features.peakFreq - mid) / ((hi - lo) / 2);
+      const w = 3.0;
+      score += w * Math.max(0, 1 - dist);
+      weights += w;
+    }
+
+    // Duration match
+    if (e.durRange) {
+      const [lo, hi] = e.durRange;
+      const mid = (lo + hi) / 2;
+      const dist = Math.abs(duration - mid) / ((hi - lo) / 2);
+      const w = 1.5;
+      score += w * Math.max(0, 1 - dist);
+      weights += w;
+    }
+
+    // Spectral centroid match
+    if (e.centroidRange) {
+      const [lo, hi] = e.centroidRange;
+      const mid = (lo + hi) / 2;
+      const dist = Math.abs(features.centroid - mid) / ((hi - lo) / 2);
+      const w = 2.0;
+      score += w * Math.max(0, 1 - dist);
+      weights += w;
+    }
+
+    // ZCR match
+    const zcrMap = { 'very-low': [0, 0.05], 'low': [0.02, 0.1], 'low-medium': [0.05, 0.15],
+                     'medium': [0.08, 0.25], 'medium-high': [0.15, 0.35],
+                     'high': [0.2, 0.5], 'very-high': [0.35, 0.8] };
+    if (e.zcr && zcrMap[e.zcr]) {
+      const [lo, hi] = zcrMap[e.zcr];
+      const mid = (lo + hi) / 2;
+      const dist = Math.abs(features.zcr - mid) / ((hi - lo) / 2 + 0.01);
+      const w = 1.5;
+      score += w * Math.max(0, 1 - dist);
+      weights += w;
+    }
+
+    // Low frequency ratio (critical for purring)
+    if (e.lowFreq) {
+      const w = 2.5;
+      score += w * features.lowFreqRatio;
+      weights += w;
+    }
+
+    // Energy match
+    const energyMap = { 'low': [0, 0.08], 'medium': [0.05, 0.2], 'medium-high': [0.1, 0.4], 'high': [0.15, 1.0] };
+    if (e.energy && energyMap[e.energy]) {
+      const [lo, hi] = energyMap[e.energy];
+      const mid = (lo + hi) / 2;
+      const dist = Math.abs(features.rms - mid) / ((hi - lo) / 2 + 0.01);
+      const w = 1.0;
+      score += w * Math.max(0, 1 - dist);
+      weights += w;
+    }
+
+    // Harmonic bonus: if expected harmonic, penalize very high ZCR (noise)
+    if (e.harmonic && features.zcr > 0.4) score -= 1.5;
+    if (!e.harmonic && features.zcr < 0.15) score -= 1.0;
+
+    const probability = weights > 0 ? Math.max(0, score / weights) : 0;
+    return { ...e, rawScore: score, probability };
+  });
+
+  // Sort by probability descending
+  results.sort((a, b) => b.probability - a.probability);
+
+  // Normalize top scores to reasonable percentages
+  const top = results.slice(0, 6);
+  let total = top.reduce((s, r) => s + Math.max(0, r.probability), 0);
+  if (total < 0.01) total = 1;
+
+  return top.slice(0, 3).map(r => ({
+    emoji: r.emoji,
+    name: r.name,
+    desc: r.desc,
+    color: r.color,
+    probability: Math.round((Math.max(0, r.probability) / total) * 100)
+  }));
+}
+
+// ── 结果显示 ──────────────────────────────────────
+
+function showResults(results) {
+  // Normalize to ensure they sum to ~100%
+  const total = results.reduce((s, r) => s + r.probability, 0);
+  if (total > 0) results.forEach(r => r.probability = Math.round(r.probability / total * 100));
+
+  const area = document.getElementById('resultsArea');
+  area.innerHTML = `
+    <div style="margin-top:8px;font-size:13px;color:var(--sub);">📊 识别结果（可能性从高到低）</div>
+    ${results.map(r => `
+      <div class="result-item">
+        <div class="result-emoji">${r.emoji}</div>
+        <div class="result-info">
+          <div class="result-name">${r.name}</div>
+          <div class="result-desc">${r.desc}</div>
+          <div class="result-bar-bg">
+            <div class="result-bar-fg" style="width:${r.probability}%;background:${r.color};transition:width 0.8s cubic-bezier(0.4,0,0.2,1)"></div>
+          </div>
+        </div>
+        <div class="result-pct" style="color:${r.color}">${r.probability}%</div>
+      </div>
+    `).join('')}
+  `;
+
+  // Animate bars after render
+  setTimeout(() => {
+    area.querySelectorAll('.result-bar-fg').forEach(bar => {
+      const w = bar.style.width;
+      bar.style.width = '0%';
+      requestAnimationFrame(() => { bar.style.width = w; });
+    });
+  }, 50);
+}
+
+// ── 品种识别 (TF.js MobileNet) ────────────────────
+
+let mobilenetModel = null;
+let tfLoaded = false;
+
+async function loadTF() {
+  if (tfLoaded) return;
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js';
+  document.head.appendChild(script);
+  await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; });
+  tfLoaded = true;
+}
+
+async function loadModel() {
+  if (mobilenetModel) return mobilenetModel;
+  document.getElementById('breedResults').innerHTML = '<div class="spinner"></div><div style="text-align:center;font-size:12px;color:var(--sub)">加载识别模型中…(~5MB，首次需下载)</div>';
+  mobilenetModel = await tf.loadGraphModel('https://tfhub.dev/google/tfjs-model/imagenet/mobilenet_v2_140_224/classification/3/default/1', { fromTFHub: true });
+  document.getElementById('breedResults').innerHTML = '';
+  return mobilenetModel;
+}
+
+async function analyzeBreed() {
+  const img = document.getElementById('photoPreview').querySelector('img');
+  if (!img) return;
+
+  document.getElementById('breedResults').innerHTML = '<div class="spinner"></div>';
+
+  try {
+    await loadTF();
+    const model = await loadModel();
+
+    const tensor = tf.tidy(() => {
+      const t = tf.browser.fromPixels(img).resizeBilinear([224, 224]).expandDims(0);
+      return t.toFloat().div(127.5).sub(1);
+    });
+
+    const predictions = await model.predict(tensor).data();
+    tensor.dispose();
+
+    // Get top predictions and map to cat breeds
+    const indexed = Array.from(predictions).map((p, i) => ({ idx: i, prob: p }));
+    indexed.sort((a, b) => b.prob - a.prob);
+
+    // ImageNet cat-related classes
+    const catClasses = {
+      281: { emoji:'🐱', name:'虎斑猫/橘猫' },
+      282: { emoji:'😺', name:'虎猫' },
+      283: { emoji:'🐈', name:'波斯猫' },
+      284: { emoji:'😸', name:'暹罗猫' },
+      285: { emoji:'😻', name:'埃及猫' },
+      286: { emoji:'🐆', name:'美洲狮' },
+      287: { emoji:'🐯', name:'猞猁' },
+      288: { emoji:'🦁', name:'狮子' },
+      289: { emoji:'🐅', name:'猎豹' },
+      290: { emoji:'🐈‍⬛', name:'雪豹' },
+      291: { emoji:'😼', name:'缅因猫' },
+    };
+
+    const top3 = indexed.slice(0, 5);
+
+    // Find cat matches
+    const catMatches = top3.filter(t => catClasses[t.idx]).map(t => ({
+      ...catClasses[t.idx],
+      probability: Math.round(t.prob * 100)
+    }));
+
+    // If no cat match found, show general results
+    const displayResults = catMatches.length > 0 ? catMatches.slice(0, 3) : [
+      { emoji:'🐱', name:'看起来像猫科动物', probability: Math.round(top3[0].prob * 100) },
+      { emoji:'🤔', name:'无法精确识别品种', probability: Math.round(top3[1] ? top3[1].prob * 100 : 20) },
+      { emoji:'📷', name:'试试换个角度拍照', probability: 10 },
+    ];
+
+    // Normalize
+    const total = displayResults.reduce((s, r) => s + r.probability, 0);
+    displayResults.forEach(r => r.probability = total > 0 ? Math.round(r.probability / total * 100) : 33);
+
+    // Find breed info from our database
+    const breedNames = displayResults.map(r => {
+      const match = CAT_BREEDS.find(b => r.name.includes(b.name));
+      return match || { traits: '聪明可爱的猫咪', vocal: '叫声因猫而异' };
+    });
+
+    document.getElementById('breedResults').innerHTML = `
+      <div style="margin-top:8px;font-size:13px;color:var(--sub)">📸 品种识别结果</div>
+      ${displayResults.map((r, i) => `
+        <div class="result-item">
+          <div class="result-emoji">${r.emoji}</div>
+          <div class="result-info">
+            <div class="result-name">${r.name}</div>
+            <div class="result-desc">性格：${breedNames[i]?.traits || ''} | 叫声：${breedNames[i]?.vocal || ''}</div>
+            <div class="result-bar-bg">
+              <div class="result-bar-fg" style="width:${r.probability}%;background:var(--orange)"></div>
+            </div>
+          </div>
+          <div class="result-pct" style="color:var(--orange)">${r.probability}%</div>
+        </div>
+      `).join('')}
+    `;
+  } catch (err) {
+    console.error('Breed error:', err);
+    document.getElementById('breedResults').innerHTML = `
+      <div style="text-align:center;padding:12px;color:var(--sub);font-size:13px">
+        ⚠️ 模型加载失败（可能需要网络）<br>
+        请检查网络连接后重试
+      </div>
+    `;
+  }
+}
+
+// ── 猫咪档案 (IndexedDB) ──────────────────────────
+
+const DB_NAME = 'CatTranslatorDB', DB_VER = 1;
+let db = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('cats')) {
+        const store = db.createObjectStore('cats', { keyPath: 'id', autoIncrement: true });
+        store.createIndex('name', 'name', { unique: false });
+      }
+    };
+    req.onsuccess = e => { db = e.target.result; resolve(db); };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function getCats() {
+  if (!db) await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction('cats', 'readonly');
+    const store = tx.objectStore('cats');
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => resolve([]);
+  });
+}
+
+async function addCat(cat) {
+  if (!db) await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction('cats', 'readwrite');
+    const store = tx.objectStore('cats');
+    const req = store.add(cat);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(null);
+  });
+}
+
+async function updateCat(id, data) {
+  if (!db) await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction('cats', 'readwrite');
+    const store = tx.objectStore('cats');
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const cat = getReq.result;
+      if (!cat) return resolve(false);
+      Object.assign(cat, data);
+      store.put(cat).onsuccess = () => resolve(true);
+    };
+    getReq.onerror = () => resolve(false);
+  });
+}
+
+async function deleteCat(id) {
+  if (!db) await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction('cats', 'readwrite');
+    store = tx.objectStore('cats');
+    store.delete(id).onsuccess = () => resolve(true);
+  });
+}
+
+// ── 品种图鉴 ──────────────────────────────────────
+
+function renderBreedGrid() {
+  const grid = document.getElementById('breedGrid');
+  grid.innerHTML = CAT_BREEDS.map(b => `
+    <div class="breed-chip" onclick="showToast('${b.name}：${b.traits}')">
+      <span class="emoji">${b.emoji}</span>
+      ${b.name}
+    </div>
+  `).join('');
+}
+
+// ── 猫咪列表 ──────────────────────────────────────
+
+async function renderCatList() {
+  const cats = await getCats();
+  const list = document.getElementById('catList');
+  if (cats.length === 0) {
+    list.innerHTML = `<div class="empty"><div class="icon">🐱</div><div>还没有添加猫咪</div><div style="font-size:11px;color:var(--mute)">点击上方按钮添加你的第一只猫</div></div>`;
+    return;
+  }
+  list.innerHTML = cats.map(c => `
+    <div class="cat-card" onclick="selectCat(${c.id})">
+      <div class="cat-avatar">${c.photo ? `<img src="${c.photo}" alt="">` : '🐱'}</div>
+      <div class="cat-info">
+        <div class="cat-name">${c.name || '未命名'}</div>
+        <div class="cat-meta">${c.breed || '未知品种'} · ${(c.recordings || []).length} 条声音记录</div>
+      </div>
+      <button class="btn-small" style="background:var(--red);color:#fff;font-size:10px;padding:6px 10px"
+        onclick="event.stopPropagation();deleteCatPrompt(${c.id})">🗑</button>
+    </div>
+  `).join('');
+}
+
+async function selectCat(id) {
+  const cats = await getCats();
+  const cat = cats.find(c => c.id === id);
+  if (!cat) return;
+
+  const recordings = cat.recordings || [];
+  const recentList = recordings.slice(-3).reverse().map(r => `
+    <div style="padding:6px 0;font-size:12px;color:var(--sub);border-bottom:1px solid rgba(255,255,255,0.04)">
+      ${new Date(r.timestamp).toLocaleString('zh-CN')}：
+      ${(r.topEmotions || []).slice(0,2).map(e => `${e.emoji}${e.name} ${e.probability}%`).join('，') || '无记录'}
+    </div>
+  `).join('');
+
+  showModal(`
+    <h3>${cat.emoji || '🐱'} ${cat.name || '未命名'}</h3>
+    <div style="text-align:center;margin:12px 0">
+      ${cat.photo ? `<img src="${cat.photo}" style="width:120px;height:120px;border-radius:50%;object-fit:cover">` : '<div style="font-size:64px">🐱</div>'}
+    </div>
+    <div style="font-size:13px;color:var(--sub);text-align:center">品种：${cat.breed || '未知'}</div>
+    <div style="margin-top:8px;font-size:12px;color:var(--sub)">📊 声音记录：${recordings.length} 条</div>
+    ${recentList || '<div style="font-size:12px;color:var(--mute);padding:8px 0">暂无记录，录一段猫叫试试</div>'}
+  `);
+}
+
+function deleteCatPrompt(id) {
+  if (confirm('确定删除这只猫咪吗？声音记录也会一起删除。')) {
+    deleteCat(id).then(() => renderCatList());
+  }
+}
+
+// ── 保存到档案 ────────────────────────────────────
+
+async function saveToCat() {
+  if (!lastResult) return;
+  const cats = await getCats();
+  if (cats.length === 0) {
+    showToast('请先在「我的猫咪」中添加一只猫');
+    return;
+  }
+
+  // Show cat selector
+  let html = '<h3>💾 保存到哪只猫？</h3>';
+  cats.forEach(c => {
+    html += `<div class="cat-card" onclick="doSaveToCat(${c.id});closeModal()" style="cursor:pointer">
+      <div class="cat-avatar">${c.photo ? `<img src="${c.photo}" alt="">` : '🐱'}</div>
+      <div class="cat-info"><div class="cat-name">${c.name}</div></div>
+    </div>`;
+  });
+  showModal(html);
+}
+
+async function doSaveToCat(catId) {
+  if (!lastResult) return;
+  const recording = {
+    timestamp: lastResult.timestamp,
+    duration: lastResult.duration,
+    features: lastResult.features,
+    topEmotions: lastResult.results.slice(0, 3)
+  };
+
+  const cats = await getCats();
+  const cat = cats.find(c => c.id === catId);
+  if (!cat) return;
+
+  const recordings = (cat.recordings || []);
+  // Compress: keep only last 50 recordings, each with minified features
+  recordings.push(recording);
+  if (recordings.length > 50) recordings.shift();
+
+  // Minify feature storage
+  const compressed = recordings.map(r => ({
+    t: r.timestamp,
+    d: Math.round(r.duration * 1000),
+    f: { r: Math.round(r.features.rms * 1000), z: Math.round(r.features.zcr * 1000), p: Math.round(r.features.peakFreq), c: Math.round(r.features.centroid), l: Math.round(r.features.lowFreqRatio * 100) },
+    e: r.topEmotions.map(e => ({ n: e.name, p: e.probability }))
+  }));
+
+  await updateCat(catId, { recordings: compressed });
+  closeModal();
+  showToast('✅ 声音记录已保存！');
+  document.getElementById('saveToCatBtn').style.display = 'none';
+}
+
+// ── 模态框 ────────────────────────────────────────
+
+function showModal(content) {
+  const existing = document.querySelector('.modal-overlay');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="modal">${content}</div>`;
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+}
+function closeModal() {
+  const overlay = document.querySelector('.modal-overlay');
+  if (overlay) overlay.remove();
+}
+
+// ── Toast ─────────────────────────────────────────
+
+function showToast(msg) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2200);
+}
+
+// ── 事件绑定 ──────────────────────────────────────
+
+// Mic button
+document.getElementById('micBtn').addEventListener('click', async () => {
+  if (document.getElementById('micBtn').classList.contains('recording')) {
+    stopRecording();
+  } else {
+    const ok = await startRecording();
+    if (!ok) showToast('⚠️ 请允许麦克风权限');
+  }
+});
+
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.panel).classList.add('active');
+    if (btn.dataset.panel === 'panel-cats') renderCatList();
+    if (btn.dataset.panel === 'panel-guide') renderBreedGrid();
+  });
+});
+
+// Photo input for breed recognition (both panels)
+document.getElementById('photoInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const preview = document.getElementById('photoPreview');
+    preview.innerHTML = `<img src="${ev.target.result}" alt="cat photo">`;
+    document.getElementById('analyzeBreedBtn').disabled = false;
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('analyzeBreedBtn').addEventListener('click', analyzeBreed);
+
+// Save to cat button
+document.getElementById('saveToCatBtn').addEventListener('click', saveToCat);
+
+// Add cat button
+document.getElementById('addCatBtn').addEventListener('click', () => {
+  catPhotoData = null;
+  document.getElementById('catPhotoPreview').innerHTML = '<span class="placeholder">📷</span>';
+  document.getElementById('catNameInput').value = '';
+  document.getElementById('addCatModal').style.display = 'flex';
+});
+
+document.getElementById('cancelAddCat').addEventListener('click', () => {
+  document.getElementById('addCatModal').style.display = 'none';
+});
+
+document.getElementById('confirmAddCat').addEventListener('click', async () => {
+  const name = document.getElementById('catNameInput').value.trim();
+  if (!name) { showToast('请输入猫咪名字'); return; }
+  await addCat({
+    name,
+    photo: catPhotoData,
+    breed: '',
+    recordings: [],
+    createdAt: Date.now()
+  });
+  document.getElementById('addCatModal').style.display = 'none';
+  showToast('✅ 猫咪已添加！');
+  renderCatList();
+});
+
+// Cat photo input
+document.getElementById('catPhotoInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    // Resize image for storage
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxSide = 300;
+      let w = img.width, h = img.height;
+      if (w > h) { h = Math.round(h * maxSide / w); w = maxSide; }
+      else { w = Math.round(w * maxSide / h); h = maxSide; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      catPhotoData = canvas.toDataURL('image/jpeg', 0.7);
+      document.getElementById('catPhotoPreview').innerHTML = `<img src="${catPhotoData}" alt="cat">`;
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+// Close modal on overlay click
+document.getElementById('addCatModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('addCatModal')) {
+    document.getElementById('addCatModal').style.display = 'none';
+  }
+});
+
+// ── 启动 ──────────────────────────────────────────
+
+async function init() {
+  await openDB();
+  document.getElementById('breedResults').innerHTML =
+    '<div style="font-size:12px;color:var(--sub);text-align:center;padding:8px">📸 拍照后点击「识别品种」<br>首次加载模型约需下载5MB</div>';
+}
+
+init();
+</script>
+</body>
+</html>
