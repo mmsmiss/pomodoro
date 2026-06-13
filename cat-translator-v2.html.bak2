@@ -163,9 +163,6 @@ input[type=file]{display:none}
         <div class="mic-hint" id="micHint">点击开始录音</div>
       </div>
       <canvas class="wave-canvas" id="waveCanvas" width="360" height="70"></canvas>
-      <div style="display:flex;align-items:center;gap:4px;margin:-2px 0 4px 0;font-size:10px;color:#6a6a88;justify-content:center">
-        🔊 声纹实时分析 — 录音时显示声音频率波动
-      </div>
       <div class="audio-row" id="audioRow" style="display:none">
         <button class="btn-play" id="playBtn">▶️ 回放</button>
         <button class="btn-play" id="downloadBtn" style="background:#f4a460;color:#1a1a2e">📥 下载</button>
@@ -190,10 +187,10 @@ input[type=file]{display:none}
         <span class="placeholder">📷</span>
       </div>
       <div class="audio-row">
-        <button class="btn btn-primary" onclick="openCamera()">📷 拍照</button>
-        <button class="btn btn-secondary" onclick="var i=document.getElementById('galleryInput');i.click()">🖼️ 相册</button>
+        <button class="btn btn-primary" onclick="pickPhoto()">📷 拍照</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('photoFileInput').click()">🖼️ 相册</button>
       </div>
-      <input type="file" id="galleryInput" accept="image/*">
+      <input type="file" id="photoFileInput" accept="image/*">
       <button class="btn btn-primary" id="analyzeBtn" disabled>🔍 识别品种</button>
       <div id="breedResults"></div>
     </div>
@@ -201,21 +198,6 @@ input[type=file]{display:none}
 
   <!-- 🐱 我的猫 -->
   <div class="panel" id="panel-cats">
-
-  <!-- Camera modal -->
-  <div class="modal-overlay" id="cameraModal" style="display:none">
-    <div class="modal" style="max-width:340px;padding:16px">
-      <h3 style="text-align:center">📷 拍照</h3>
-      <video id="camVideo" autoplay playsinline style="width:100%;height:240px;object-fit:cover;border-radius:12px;background:#000;margin:8px 0"></video>
-      <canvas id="camCanvas" style="display:none"></canvas>
-      <div id="camError" style="font-size:11px;color:#ff6b6b;text-align:center;margin:8px 0;display:none"></div>
-      <div class="row">
-        <button class="btn btn-secondary" onclick="closeCamera()">取消</button>
-        <button class="btn btn-primary" onclick="snapPhoto()">📸 拍摄</button>
-      </div>
-    </div>
-  </div>
-
     <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0">
       <h3 style="margin:0">🐱 我的猫咪</h3>
       <button class="btn-small btn-primary" id="addCatBtn" style="width:auto;margin:0">＋ 添加</button>
@@ -276,38 +258,37 @@ input[type=file]{display:none}
 
 // ── 常量 ──
 var SAMPLE_RATE = 44100;
-var MAX_SEC = 5;
+var MAX_SEC = 8;
 
 // ── 基于声学研究的猫叫声情绪模型 ──
 // 参考文献: Nicastro & Owren (2003), Yeon et al. (2011), Schötz et al. (2012-2019)
 // 六个基础类别，每类权重基于已发表研究的声学参数范围
-// === Schötz 2024 calibrated emotion model (50 cats, 969 meows) ===
-// F0 data: Attention 559Hz(+/-40) n=487, Content 495Hz(+/-40) n=52,
-//   Stressed 579Hz(+/-39) n=78, Food 581Hz(+/-38) n=341,
-//   Greeting 484Hz(+/-44) n=61, Door 661Hz(+/-30) n=75
-// Duration: Content 545ms, Food 728ms, Stressed 912ms, Carrier 932ms
-// Intonation: Greeting=steep rise, Carrier=fall, Door=level
-// Purr: Schötz 2015 F0=18-31Hz; Hiss: Yeon 2011 aperiodic
 var EMOTIONS = [
-  {id:'content',emoji:'😌',name:'满足/放松',desc:'咕噜声，舒服放松',
-   color:'#7ec8a0',f0Lo:15,f0Hi:60,dLo:1.5,dHi:25,zLo:0.001,zHi:0.05,cLo:20,cHi:200,
-   contour:'flat',harm:true,rep:false,e:'very-low',purr:true},
-  {id:'attention',emoji:'🐱',name:'寻求关注',desc:'打招呼或想引起注意',
-   color:'#f4a460',f0Lo:390,f0Hi:720,dLo:0.3,dHi:1.5,zLo:0.05,zHi:0.22,cLo:300,cHi:1100,
-   contour:'rising',harm:true,rep:false,e:'medium',purr:false},
-  {id:'hungry',emoji:'🍼',name:'饥饿/乞食',desc:'想吃东西了',
-   color:'#ff8c52',f0Lo:490,f0Hi:700,dLo:0.3,dHi:1.2,zLo:0.07,zHi:0.25,cLo:380,cHi:1200,
-   contour:'rising',harm:true,rep:true,e:'medium-high',purr:false},
-  {id:'pain',emoji:'😿',name:'痛苦/不适',desc:'不舒服或紧张',
-   color:'#ff6b6b',f0Lo:440,f0Hi:700,dLo:0.6,dHi:4,zLo:0.03,zHi:0.18,cLo:250,cHi:950,
-   contour:'falling',harm:true,rep:false,e:'high',purr:false},
-  {id:'angry',emoji:'😾',name:'愤怒/威胁',desc:'嘶嘶声，在警告',
-   color:'#ff4757',f0Lo:1200,f0Hi:8000,dLo:0.1,dHi:4,zLo:0.30,zHi:0.70,cLo:1800,cHi:6000,
-   contour:'flat',harm:false,rep:false,e:'medium',purr:false},
-  {id:'mating',emoji:'🚨',name:'发情/领地',desc:'发情期嚎叫或宣示领地',
-   color:'#b39dff',f0Lo:250,f0Hi:750,dLo:1.2,dHi:8,zLo:0.02,zHi:0.15,cLo:200,cHi:900,
-   contour:'flat',harm:true,rep:true,e:'high',purr:false}
-];;
+  // Purring: 20-50Hz f0, very long duration, ultra-low ZCR, harmonic, very low energy
+  {id:'content',emoji:'😌',name:'满足/放松',desc:'舒服，心情很好',
+   color:'#7ec8a0',f0Lo:20,f0Hi:80,dLo:2,dHi:25,zLo:0.001,zHi:0.04,cLo:30,cHi:200,e:'very-low',
+   harmonic:true,repetitive:false},
+  // Solicitation meow: 400-800Hz, 0.3-1.5s, clear harmonics, medium energy
+  {id:'attention',emoji:'🐱',name:'寻求关注',desc:'想和你玩，想要摸摸',
+   color:'#f4a460',f0Lo:350,f0Hi:900,dLo:0.2,dHi:1.8,zLo:0.06,zHi:0.22,cLo:300,cHi:1200,e:'medium',
+   harmonic:true,repetitive:false},
+  // Food-seeking: 500-1000Hz, short repeated bursts 0.15-0.6s, higher pitch, often rising contour
+  {id:'hungry',emoji:'🍼',name:'饥饿/乞食',desc:'饿了想吃东西',
+   color:'#ff8c52',f0Lo:450,f0Hi:1100,dLo:0.12,dHi:0.8,zLo:0.10,zHi:0.28,cLo:400,cHi:1300,e:'medium-high',
+   harmonic:true,repetitive:true},
+  // Pain/sick: 350-800Hz, longer sustained (1-4s), loud, irregular
+  {id:'pain',emoji:'😿',name:'痛苦/不适',desc:'可能受伤或不舒服',
+   color:'#ff6b6b',f0Lo:250,f0Hi:1000,dLo:0.8,dHi:5,zLo:0.04,zHi:0.18,cLo:200,cHi:1000,e:'high',
+   harmonic:true,repetitive:false},
+  // Hiss/growl: >2000Hz broadband, aperiodic, nasty
+  {id:'angry',emoji:'😾',name:'愤怒/威胁',desc:'感到威胁，别靠近',
+   color:'#ff4757',f0Lo:800,f0Hi:8000,dLo:0.2,dHi:4,zLo:0.35,zHi:0.75,cLo:1800,cHi:6000,e:'medium',
+   harmonic:false,repetitive:false},
+  // Estrus call: 300-700Hz, very long sustained (2-8s), loud, nasal quality, repetitive
+  {id:'mating',emoji:'🚨',name:'发情/领地',desc:'发情期或宣示领地',
+   color:'#b39dff',f0Lo:250,f0Hi:800,dLo:1.5,dHi:8,zLo:0.03,zHi:0.15,cLo:200,cHi:900,e:'high',
+   harmonic:true,repetitive:true}
+];
 
 var CAT_BREEDS = [
   {name:'中华田园猫',traits:'适应力强，聪明',vocal:'中频，变化丰富'},
@@ -510,17 +491,11 @@ function extract(buf){
   // Low frequency ratio
   var loE=0,totE=0;
   for(var i=0;i<n;i++){totE+=s[i]*s[i];}
+  // Simple filter: count energy in low-freq samples
   var loCount=0;for(var i=1;i<n;i++)if(Math.abs(s[i]-s[i-1])<0.01)loCount++;
   var loRatio=loCount/n;
 
-  // Intonation contour: first-half vs second-half F0
-  var mid=Math.floor(n/2);
-  var f0First=findPeakFreq(s.subarray(0,mid),sr);
-  var f0Second=findPeakFreq(s.subarray(mid),sr);
-  var contour=0;
-  if(f0First>0&&f0Second>0) contour=(f0Second-f0First)/f0First; // + = rising, - = falling
-
-  return{rms:rms,zcr:zcr,peakFreq:peakFreq,centroid:centroid,lowRatio:loRatio,contour:contour,sr:sr,n:n};
+  return{rms:rms,zcr:zcr,peakFreq:peakFreq,centroid:centroid,lowRatio:loRatio,sr:sr,n:n};
 }
 
 // Fast peak frequency via autocorrelation
@@ -557,71 +532,84 @@ function estimateCentroid(samples,sr,peakFreq){
 //   猫叫频谱斜率: -6 dB/oct 或更缓
 
 function detectHumanVoice(audioBuf, features, dur){
-  // Human F0: male 85-180Hz, female 165-550Hz
-  // Cat meow F0: 300-1200Hz (Schötz 2024), purr: 18-31Hz
   var s=audioBuf.getChannelData(0), n=s.length, sr=audioBuf.sampleRate;
-  var score=0, ind=[], det={};
-  det.peakHz=Math.round(features.peakFreq);
-  det.zcrPct=Math.round(features.zcr*100);
-  var f0h=findHumanF0(s,sr);
-  det.f0Human=Math.round(f0h);
 
-  // 1. Human F0 range (weight 4): male 85-180Hz, female 165-550Hz
-  if(f0h>=70 && f0h<=500 && features.peakFreq>=70 && features.peakFreq<=550){
-    score+=4;
-    if(f0h<250) ind.push('基频'+det.f0Human+'Hz 在男性人声范围(85-250Hz)');
-    else if(f0h<400) ind.push('基频'+det.f0Human+'Hz 在女性人声范围(165-400Hz)');
-    else ind.push('基频'+det.f0Human+'Hz 在人声高声区');
-  } else if(f0h>=500 && f0h<=800){
+  // 快速检测：如果基频在 80-550 Hz 且峰频也在人声范围
+  // 并且有规律谐波结构 → 很可能是人声
+  var f0=findF0Human(s,sr);
+  var peakInHuman=(features.peakFreq>=60 && features.peakFreq<=600);
+  var zcrLow=(features.zcr<0.25);
+
+  // 如果检测到有效基频且在人类范围
+  var hasHumanF0=(f0>=70 && f0<=600);
+
+  // 咕噜声排除：基频极低 + 长持续 = 猫咕噜声，非人声
+  var isPurr=(features.peakFreq<100 && features.lowRatio>0.5 && dur>1.5);
+
+  // 嘶嘶声排除：高 ZCR + 高频 = 猫愤怒/威胁，非人声
+  var isHiss=(features.zcr>0.35 && features.peakFreq>1500);
+
+  var score=0, indicators=[], details={};
+
+  // 1. 基频检测
+  if(hasHumanF0 && !isPurr){
+    details.f0=f0;
+    if(f0>=85 && f0<=400){
+      score+=3;  // 典型人声基频
+      indicators.push('基频 '+f0+'Hz 在人声范围内（80-400Hz）');
+    } else if(f0>=400 && f0<=600){
+      score+=2;  // 高声区人声或人模仿猫叫
+      indicators.push('基频 '+f0+'Hz 在人类高声区（模仿猫叫时）');
+    }
+  } else if(isPurr){
+    score-=2;
+    details.f0=Math.round(features.peakFreq);
+  } else {
+    details.f0=Math.round(features.peakFreq);
+  }
+
+  // 2. 谐波清晰度（自相关峰值个数）
+  var hCount=countHarmonicPeaks(s,sr,f0||features.peakFreq);
+  details.harmonics=hCount;
+  if(hCount>=4){
     score+=2;
-    ind.push('基频'+det.f0Human+'Hz 接近人声上限(模仿猫叫)');
+    indicators.push('检测到 '+hCount+' 个清晰谐波峰，人声结构明显');
+  } else if(hCount>=3){
+    score+=1;
+  } else if(hCount<=2 && hasHumanF0){
+    score-=1;  // 有基频但谐波少→更像猫叫
   }
 
-  // 2. Purr exclusion: F0<60Hz + low ZCR + long (weight -4)
-  if(features.peakFreq<60 && features.lowRatio>0.4 && dur>1.5){
-    score-=4; ind.push('排除: 超低频长持续=猫咕噜声(F0='+det.peakHz+'Hz)');
+  // 3. 峰频与基频关系：人声峰频 ≈ f0，猫叫峰频可能不在 f0
+  if(hasHumanF0 && Math.abs(features.peakFreq-f0)<f0*0.5){
+    score+=1;
   }
 
-  // 3. Hiss exclusion: high ZCR + high peak (weight -4)
-  if(features.zcr>0.30 && features.peakFreq>1500){
-    score-=4; ind.push('排除: 嘶嘶声特征(ZCR='+det.zcrPct+'%)');
+  // 4. ZCR + 时长的联合判断
+  if(zcrLow && dur<2 && hasHumanF0 && !isPurr){
+    score+=1;
   }
 
-  // 4. ZCR for human speech modulation
-  if(features.zcr>0.04 && features.zcr<0.18 && f0h>80 && f0h<450){
-    score+=1; ind.push('ZCR在人声调制范围内('+det.zcrPct+'%)');
+  // 5. 排除项
+  if(isHiss){
+    score-=3;
+    indicators.push('嘶嘶声特征 → 猫的威胁发声');
+  }
+  if(isPurr){
+    score-=2;
+    indicators.push('超低频长时间 → 猫咕噜声');
+    details.f0=Math.round(features.peakFreq);
   }
 
-  // 5. Harmonic structure
-  if(features.zcr<0.18 && f0h>70){
-    score+=1; ind.push('谐波结构规则，人声特征');
-  }
+  var isHuman=(score>=4 && !isPurr && !isHiss);
 
-  // 6. Short duration
-  if(dur<2.5 && f0h>70 && f0h<500) score+=0.5;
-
-  var isHuman=(score>=4 && features.peakFreq>60 && features.peakFreq<600);
-  return{isHuman:isHuman,confidence:Math.min(95,Math.max(5,Math.round((score+3)/10*100))),
-    score:score,indicators:ind.slice(0,4),details:det};
-}
-
-function findHumanF0(samples,sr){
-  var n=samples.length;
-  var minLag=Math.max(2,Math.floor(sr/550));
-  var maxLag=Math.min(n-1,Math.floor(sr/70));
-  if(maxLag<=minLag) return 0;
-  var step=Math.max(1,Math.floor(n/3000));
-  var ds=[]; for(var i=0;i<n;i+=step) ds.push(samples[i]);
-  var dsN=ds.length, dsMin=Math.max(1,Math.floor(minLag/step)), dsMax=Math.min(dsN-1,Math.floor(maxLag/step));
-  var bestL=dsMin, bestC=-Infinity;
-  for(var lag=dsMin;lag<=dsMax;lag++){
-    var c=0; for(var i=0;i<dsN-lag;i++) c+=ds[i]*ds[i+lag];
-    var norm=0; for(i=0;i<dsN;i++) norm+=ds[i]*ds[i];
-    if(norm>0) c=c/(norm/dsN);
-    if(c>bestC){bestC=c;bestL=lag;}
-  }
-  if(bestC<0.02) return 0;
-  return Math.round(sr/(bestL*step));
+  return{
+    isHuman:isHuman,
+    confidence:Math.min(95,Math.max(5,Math.round((score+2)/9*100))),
+    score:score,
+    indicators:indicators.slice(0,4),
+    details:details
+  };
 }
 
 // Fast human fundamental frequency detection (80-600 Hz range)
@@ -654,7 +642,33 @@ function findF0Human(samples,sr){
 }
 
 // Fast harmonic peak counting using autocorrelation-derived peaks
+function countHarmonicPeaks(samples,sr,f0){
+  if(!f0||f0<30||f0>sr/2)return 0;
+  // Quick check: does autocorrelation show peaks at multiples of f0 period?
+  var n=samples.length,period=Math.round(sr/f0);
+  if(period<2||period>n/2)return 0;
 
+  // Step through samples at f0 multiples and check local correlation
+  var count=0;
+  for(var h=1;h<=6;h++){
+    var lag=h*period;
+    if(lag>=n-period)break;
+    // Correlation at this lag
+    var corr=0,cnt=0;
+    for(var i=0;i<n-lag;i+=Math.max(1,Math.floor(period/8))){
+      corr+=samples[i]*samples[i+lag];
+      cnt++;
+    }
+    // Nearby correlation at off-lag to check peak
+    var offCorr=0;
+    for(i=0;i<n-lag-2;i+=Math.max(1,Math.floor(period/8))){
+      offCorr+=samples[i]*samples[i+lag+2];
+    }
+    var ratio=(cnt>0)?corr/offCorr:0;
+    if(ratio>1.6&&corr>0)count++;
+  }
+  return count;
+}
 
 // ── 情绪分类 ──
 function classify(f,dur){
@@ -693,36 +707,27 @@ function classify(f,dur){
 
     // 6. Harmonic consistency bonus/penalty (weight: 1.5)
     // Harmonic sounds: ZCR should be < 0.3; inharmonic: ZCR should be > 0.3
-    // 6. Harmonic consistency (weight 2.0 — Schötz: harmonic meows vs aperiodic hisses)
-    if(e.harm){
-      if(f.zcr<0.22) sc+=2.0;       // clearly harmonic
-      else if(f.zcr<0.30) sc+=1.0;  // borderline
-      else sc-=1.5;                 // expected harmonic, got noisy
+    if(e.harmonic){
+      if(f.zcr<0.25) sc+=1.5;   // clearly harmonic → bonus
+      else if(f.zcr<0.35) sc+=0.5;  // borderline
+      else sc-=1.0;  // expected harmonic but got noisy
     } else {
-      if(f.zcr>0.30) sc+=2.0;       // clearly aperiodic
-      else if(f.zcr>0.22) sc+=1.0;  // borderline
-      else sc-=2.0;                 // expected noise, got harmonic
+      // Expected noisy/aperiodic
+      if(f.zcr>0.30) sc+=1.5;  // clearly aperiodic → bonus
+      else if(f.zcr>0.20) sc+=0.5;  // borderline
+      else sc-=1.5;  // expected noise but got harmonic
     }
-    w+=2.0;
-
-    // 7. Purring-specific: ultra-low frequency ratio (weight: 2.5)
-    if(e.purr){
-      sc+=2.5*f.lowRatio;
-      w+=2.5;
-    } else {
-      w+=2.5;
-    }
-
-    // 8. Repetition pattern bonus (weight: 1.5)
-    if(e.rep && dur<0.8) sc+=1.5;
     w+=1.5;
 
-    // 9. Intonation contour (weight 2.0 — key finding of Schötz 2024)
-    if(e.contour==='rising' && f.contour>0.04) sc+=2.0;
-    else if(e.contour==='falling' && f.contour<-0.04) sc+=2.0;
-    else if(e.contour==='flat' && Math.abs(f.contour)<=0.04) sc+=2.0;
-    else if(Math.abs(f.contour)<=0.07) sc+=1.0;
-    w+=2.0;
+    // 7. Purring-specific: ultra-low frequency ratio (weight: 2.0)
+    if(e.id==='content'){
+      sc+=2.0*f.lowRatio;  // content/purring: high low-freq ratio is good
+      w+=2.0;
+    }
+
+    // 8. Repetition pattern bonus
+    if(e.repetitive && dur<1.0) sc+=1.0;  // short burst → repetitive pattern
+    w+=1.0;
 
     return{emoji:e.emoji,name:e.name,desc:e.desc,color:e.color,prob:Math.max(0,sc/Math.max(w,0.01))};
   });
@@ -745,27 +750,26 @@ function classify(f,dur){
 function showResults(results,humanCheck){
   var area=document.getElementById('resultsArea');
   var isHuman=humanCheck&&humanCheck.isHuman;
+  var humanBanner=isHuman?
+    '<div style="background:linear-gradient(135deg,#ff8c52,#ff6b6b);border-radius:12px;padding:14px;margin-bottom:12px;text-align:center">'+
+      '<div style="font-size:14px;font-weight:700;color:#fff">🗣️ 这是人类在模仿猫咪叫声</div>'+
+      '<div style="font-size:11px;color:rgba(255,255,255,0.85);margin-top:4px;line-height:1.6">'+
+        '声带振动特征符合人声（置信度 '+humanCheck.confidence+'%）<br>'+
+        humanCheck.indicators.map(function(x){return '· '+x}).join('<br>')+
+      '</div>'+
+    '</div>'
+    : '';
 
-  // Human voice banner
-  var humanBanner='';
-  if(isHuman){
-    var inds=humanCheck.indicators||[];
-    humanBanner=
-      '<div style="background:linear-gradient(135deg,#ff8c52,#ff6b6b);border-radius:12px;padding:12px 14px;margin-bottom:10px;text-align:center">'+
-        '<div style="font-size:13px;font-weight:700;color:#fff">🗣️ 检测到人类声音</div>'+
-        '<div style="font-size:10px;color:rgba(255,255,255,0.8);margin-top:2px;line-height:1.5">'+
-          (inds.length>0?inds.map(function(x){return '· '+x}).join('<br>'):'声学特征符合人类发声规律')+
-          (humanCheck.confidence?'<br>置信度 '+humanCheck.confidence+'%':'')+
-        '</div>'+
-      '</div>';
-  } else if(humanCheck){
-    humanBanner='<div style="text-align:center;font-size:11px;color:#7ec8a0;margin:4px 0 6px 0">✅ 确认为动物发声</div>';
-  }
+  var comparisonNote=isHuman?
+    '<div style="font-size:11px;color:#a0a0c0;margin:4px 0 8px 0;text-align:center">'+
+      '👇 这声音与以下猫咪情绪最相似'+
+    '</div>'
+    : '';
 
   area.innerHTML=
     '<div style="margin-top:8px;font-size:13px;color:#a0a0c0">📊 识别结果（可能性从高到低）</div>'+
     humanBanner+
-    (isHuman?'<div style="font-size:11px;color:#a0a0c0;margin:2px 0 6px;text-align:center">👇 这声音与以下猫咪情绪最相似</div>':'')+
+    comparisonNote+
     results.map(function(r){
       return '<div class="result-item"><div class="result-emoji">'+r.emoji+'</div>'+
         '<div class="result-info"><div class="result-name">'+r.name+'</div>'+
@@ -774,11 +778,15 @@ function showResults(results,humanCheck){
         '<div class="result-pct" style="color:'+r.color+'">'+r.probability+'%</div></div>';
     }).join('');
 
-  // Extra acoustic detail
-  if(humanCheck&&humanCheck.details){
+  // More detail if human voice detected
+  if(isHuman&&humanCheck.details){
     area.innerHTML+=
-      '<div style="margin-top:6px;font-size:10px;color:#6a6a88;text-align:center">'+
-        '🔬 主频:'+humanCheck.details.peakHz+'Hz · ZCR:'+humanCheck.details.zcrPct+'% · 人声F0:'+humanCheck.details.f0Human+'Hz</div>';
+      '<div style="margin-top:10px;background:#2d2d4a;border-radius:10px;padding:10px;font-size:10px;color:#6a6a88;line-height:1.8">'+
+        '🔬 声学参数：F0='+humanCheck.details.f0+'Hz · '+
+        '谐波数='+humanCheck.details.harmonics+' · '+
+        '共振峰='+humanCheck.details.formants+' · '+
+        '频谱斜率='+humanCheck.details.spectralSlope+'dB/oct'+
+      '</div>';
   }
 
   // Animate
@@ -1016,65 +1024,14 @@ function handlePhoto(file){
   };
   r.readAsDataURL(file);
 }
-// Camera input (capture=environment → opens camera on mobile)
-// Gallery input (no capture → opens gallery/file picker)
-document.getElementById('galleryInput').onchange=function(e){handlePhoto(e.target.files[0])};
+document.getElementById('photoFileInput').onchange=function(e){handlePhoto(e.target.files[0])};
 
-// Open camera (capture=environment triggers native camera app)
-function openCamera(){
-  // Try getUserMedia on desktop, fallback to mobile capture
-  var vid = document.getElementById('camVideo');
-  var modal = document.getElementById('cameraModal');
-  var errDiv = document.getElementById('camError');
-  errDiv.style.display = 'none';
-  modal.style.display = 'flex';
-
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'environment'}}).then(function(stream){
-      vid.srcObject = stream;
-      vid.play();
-      window._camStream = stream;
-    }).catch(function(e){
-      // Try again with any camera
-      navigator.mediaDevices.getUserMedia({video:true}).then(function(stream){
-        vid.srcObject = stream;
-        vid.play();
-        window._camStream = stream;
-      }).catch(function(e2){
-        errDiv.style.display = 'block';
-        errDiv.textContent = '无法打开摄像头，请确认已授权相机权限，或使用相册上传照片';
-        // Fallback: try file input as last resort
-        document.getElementById('galleryInput').click();
-        modal.style.display = 'none';
-      });
-    });
-  } else {
-    errDiv.style.display = 'block';
-    errDiv.textContent = '此浏览器不支持摄像头，请使用相册上传';
-  }
-}
-
-function closeCamera(){
-  var stream = window._camStream;
-  if (stream) {
-    stream.getTracks().forEach(function(t){t.stop();});
-    window._camStream = null;
-  }
-  document.getElementById('camVideo').srcObject = null;
-  document.getElementById('cameraModal').style.display = 'none';
-}
-
-function snapPhoto(){
-  var vid = document.getElementById('camVideo');
-  var canvas = document.getElementById('camCanvas');
-  canvas.width = vid.videoWidth || 640;
-  canvas.height = vid.videoHeight || 480;
-  var ctx = canvas.getContext('2d');
-  ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-  var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-  document.getElementById('photoPreview').innerHTML = '<img src="' + dataUrl + '">';
-  document.getElementById('analyzeBtn').disabled = false;
-  closeCamera();
+// Camera — try native camera on mobile, fallback to file picker on desktop
+function pickPhoto(){
+  var inp=document.getElementById('photoFileInput');
+  // Remove any capture attribute, let browser decide
+  // Mobile browsers (Chrome/Safari) will offer camera option for accept=image/*
+  inp.click();
 }
 document.getElementById('analyzeBtn').onclick=analyzeBreed;
 
