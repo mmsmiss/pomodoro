@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🐱 猫咪情绪识别 v2 · 人声检测</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:#1a1a2e;color:#e8e8f0;font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+  display:flex;justify-content:center;min-height:100vh;user-select:none;
+}
+.app{width:100%;max-width:420px;padding:16px 16px 80px}
+.header{text-align:center;padding:20px 0 12px}
+.header h1{font-size:22px}
+.header .sub{font-size:12px;color:#a0a0c0;margin-top:4px}
+
+/* Tabs */
+.tab-bar{
+  position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:420px;
+  background:#2d2d4a;display:flex;padding:8px 0;border-top:1px solid rgba(255,255,255,0.06);z-index:100
+}
+.tab-btn{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;
+  border:none;background:none;color:#6a6a88;font-size:10px;cursor:pointer
+}
+.tab-btn.active{color:#f4a460}
+.tab-btn .icon{font-size:22px}
+
+.panel{display:none}
+.panel.active{display:block;animation:in 0.25s}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+.card{background:#252540;border-radius:16px;padding:20px;margin:12px 0;box-shadow:0 4px 24px rgba(0,0,0,0.3)}
+.card h3{font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+
+/* Mic */
+.mic-area{display:flex;flex-direction:column;align-items:center;padding:24px 0}
+.mic-btn{
+  width:96px;height:96px;border-radius:50%;border:4px solid #f4a460;
+  background:#2d2d4a;color:#f4a460;font-size:40px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 30px rgba(244,164,96,0.2);transition:all 0.25s
+}
+.mic-btn.recording{
+  background:#ff6b6b;border-color:#ff6b6b;color:#fff;
+  animation:pulse 1.2s infinite;box-shadow:0 0 40px rgba(255,107,107,0.4)
+}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+.mic-hint{margin-top:12px;font-size:13px;color:#a0a0c0}
+
+/* Wave */
+.wave-canvas{width:100%;height:70px;border-radius:12px;background:#2d2d4a;margin:8px 0}
+
+/* Buttons */
+.btn{
+  display:block;width:100%;padding:14px;border:none;border-radius:12px;
+  font-size:14px;font-weight:600;cursor:pointer;margin:8px 0;transition:opacity 0.2s
+}
+.btn:active{opacity:0.8}
+.btn-primary{background:#f4a460;color:#1a1a2e}
+.btn-secondary{background:#2d2d4a;color:#e8e8f0}
+.btn-small{display:inline-block;padding:8px 16px;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;background:#2d2d4a;color:#e8e8f0}
+.btn-play{width:100%;padding:10px;border:none;border-radius:10px;background:#2d2d4a;color:#e8e8f0;font-size:13px;cursor:pointer}
+
+/* Results */
+.result-item{
+  display:flex;align-items:center;gap:12px;padding:10px 0;
+  border-bottom:1px solid rgba(255,255,255,0.05)
+}
+.result-item:last-child{border:none}
+.result-emoji{font-size:32px;min-width:40px;text-align:center}
+.result-info{flex:1}
+.result-name{font-size:14px;font-weight:600}
+.result-desc{font-size:11px;color:#a0a0c0;margin-top:2px}
+.result-bar-bg{height:5px;border-radius:3px;background:#2d2d4a;margin-top:4px;overflow:hidden}
+.result-bar-fg{height:100%;border-radius:3px;transition:width 0.6s}
+.result-pct{font-size:17px;font-weight:700;min-width:42px;text-align:right}
+
+/* Photo */
+.photo-preview{
+  width:100%;height:200px;border-radius:16px;background:#2d2d4a;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  margin:8px 0;border:2px dashed #6a6a88;cursor:pointer
+}
+.photo-preview img{width:100%;height:100%;object-fit:cover}
+.photo-preview .placeholder{font-size:48px;color:#6a6a88}
+input[type=file]{display:none}
+
+/* Breed grid */
+.breed-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.breed-chip{
+  background:#252540;border-radius:12px;overflow:hidden;cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:transform 0.15s
+}
+.breed-chip:active{transform:scale(0.96)}
+.breed-chip img{width:100%;height:100px;object-fit:cover;display:block}
+.breed-chip .label{padding:8px 6px;font-weight:600;font-size:11px;text-align:center}
+
+/* Modal */
+.modal-overlay{
+  position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);
+  z-index:200;display:flex;align-items:center;justify-content:center
+}
+.modal{
+  background:#252540;border-radius:16px;padding:24px;width:90%;max-width:360px
+}
+.modal h3{margin-bottom:16px}
+.modal input{
+  width:100%;padding:12px;border-radius:10px;border:1px solid #6a6a88;
+  background:#2d2d4a;color:#e8e8f0;font-size:14px;margin:6px 0
+}
+.modal .row{display:flex;gap:8px;margin-top:16px}
+.modal .row .btn{flex:1}
+
+/* Cat list */
+.cat-card{
+  background:#252540;border-radius:16px;padding:14px;margin:8px 0;
+  display:flex;gap:12px;align-items:center;cursor:pointer
+}
+.cat-avatar{
+  width:52px;height:52px;border-radius:50%;background:#2d2d4a;
+  display:flex;align-items:center;justify-content:center;font-size:26px;
+  overflow:hidden;flex-shrink:0
+}
+.cat-avatar img{width:100%;height:100%;object-fit:cover}
+.cat-info{flex:1}
+.cat-name{font-size:14px;font-weight:600}
+.cat-meta{font-size:11px;color:#a0a0c0;margin-top:2px}
+
+.spinner{
+  width:32px;height:32px;border:3px solid #2d2d4a;
+  border-top-color:#f4a460;border-radius:50%;animation:spin 0.8s linear infinite;margin:16px auto
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{
+  position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:300;
+  background:#7ec8a0;color:#1a1a2e;padding:10px 24px;border-radius:20px;
+  font-size:13px;font-weight:600;animation:tin 0.3s,tout 0.3s 1.7s forwards
+}
+@keyframes tin{from{opacity:0;transform:translateX(-50%) translateY(-20px)}}
+@keyframes tout{to{opacity:0;transform:translateX(-50%) translateY(-20px)}}
+.empty{text-align:center;padding:40px 20px;color:#6a6a88}
+.empty .icon{font-size:48px;margin-bottom:12px}
+.audio-row{display:flex;gap:8px;margin:8px 0}
+.audio-row button{flex:1}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="header">
+    <h1>🐱 猫咪情绪识别</h1>
+    <div class="sub">听见你的猫在说什么 · 识别人类模仿</div>
+  </div>
+
+  <!-- 🎤 录音 -->
+  <div class="panel active" id="panel-record">
+    <div class="card">
+      <h3>🎤 喵叫分析</h3>
+      <div class="mic-area">
+        <button class="mic-btn" id="micBtn">🎙️</button>
+        <div class="mic-hint" id="micHint">点击开始录音</div>
+      </div>
+      <canvas class="wave-canvas" id="waveCanvas" width="360" height="70"></canvas>
+      <div class="audio-row" id="audioRow" style="display:none">
+        <button class="btn-play" id="playBtn">▶️ 回放</button>
+        <button class="btn-play" id="downloadBtn" style="background:#f4a460;color:#1a1a2e">📥 下载</button>
+      </div>
+      <div id="resultsArea"></div>
+      <button class="btn btn-secondary btn-small" id="saveBtn" style="display:none">💾 保存到猫咪档案</button>
+    </div>
+    <div class="card" style="font-size:12px;color:#a0a0c0;line-height:1.8">
+      <strong>💡 使用技巧</strong><br>
+      · 猫咪叫的时候靠近录音<br>
+      · 远离环境噪音<br>
+      · 录 1-3 秒即可<br>
+      · 显示 3 种最可能的情绪，概率从高到低
+    </div>
+  </div>
+
+  <!-- 📸 品种 -->
+  <div class="panel" id="panel-breed">
+    <div class="card">
+      <h3>📸 识别品种</h3>
+      <div class="photo-preview" id="photoPreview">
+        <span class="placeholder">📷</span>
+      </div>
+      <div class="audio-row">
+        <button class="btn btn-primary" onclick="document.getElementById('cameraInput').click()">📷 拍照</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()">🖼️ 相册</button>
+      </div>
+      <input type="file" id="cameraInput" accept="image/*" capture="environment">
+      <input type="file" id="galleryInput" accept="image/*">
+      <button class="btn btn-primary" id="analyzeBtn" disabled>🔍 识别品种</button>
+      <div id="breedResults"></div>
+    </div>
+  </div>
+
+  <!-- 🐱 我的猫 -->
+  <div class="panel" id="panel-cats">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0">
+      <h3 style="margin:0">🐱 我的猫咪</h3>
+      <button class="btn-small btn-primary" id="addCatBtn" style="width:auto;margin:0">＋ 添加</button>
+    </div>
+    <div id="catList"></div>
+  </div>
+
+  <!-- 📖 图鉴 -->
+  <div class="panel" id="panel-guide">
+    <h3 style="margin:12px 0">📖 品种图鉴</h3>
+    <div class="breed-grid" id="breedGrid"></div>
+    <div class="card" style="margin-top:12px">
+      <h3>🔊 情绪对照</h3>
+      <div style="font-size:12px;line-height:2;color:#a0a0c0">
+        😾 愤怒/威胁 — 嘶嘶声<br>
+        😿 痛苦/不适 — 长嚎<br>
+        🐱 寻求关注 — 短促上扬<br>
+        😌 满足/放松 — 咕噜声<br>
+        🚨 发情 — 持续嚎叫<br>
+        🍼 饥饿 — 短促重复<br>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" data-panel="panel-record"><span class="icon">🎤</span>录音</button>
+    <button class="tab-btn" data-panel="panel-breed"><span class="icon">📸</span>品种</button>
+    <button class="tab-btn" data-panel="panel-cats"><span class="icon">🐱</span>我的猫</button>
+    <button class="tab-btn" data-panel="panel-guide"><span class="icon">📖</span>图鉴</button>
+  </div>
+</div>
+
+<!-- Add cat modal -->
+<div class="modal-overlay" id="addCatModal" style="display:none">
+  <div class="modal">
+    <h3>🐱 添加猫咪</h3>
+    <input type="text" id="catNameInput" placeholder="猫咪名字" maxlength="20">
+    <div class="photo-preview" id="catPhotoPreview" style="height:140px" onclick="document.getElementById('catPhotoInput').click()">
+      <span class="placeholder">📷</span>
+    </div>
+    <input type="file" id="catPhotoInput" accept="image/*" capture="environment">
+    <div class="row">
+      <button class="btn btn-secondary" id="cancelAdd">取消</button>
+      <button class="btn btn-primary" id="confirmAdd">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- Detail modal -->
+<div class="modal-overlay" id="detailModal" style="display:none">
+  <div class="modal" id="detailContent"></div>
+</div>
+
+<script>
+// ============================================================
+//  猫咪情绪识别器 v2 — clean rewrite
+// ============================================================
+
+// ── 常量 ──
+var SAMPLE_RATE = 44100;
+var MAX_SEC = 8;
+
+var EMOTIONS = [
+  {id:'attention',emoji:'🐱',name:'寻求关注',desc:'想和你玩，想要摸摸',
+   color:'#f4a460',pLo:350,pHi:1100,dLo:0.1,dHi:1.5,cLo:400,cHi:1400,z:'medium',e:'medium'},
+  {id:'hungry',emoji:'🍼',name:'饥饿/乞食',desc:'饿了想吃东西',
+   color:'#ff8c52',pLo:450,pHi:1200,dLo:0.1,dHi:1.0,cLo:500,cHi:1500,z:'medium-high',e:'medium-high'},
+  {id:'pain',emoji:'😿',name:'痛苦/不适',desc:'可能受伤或不舒服',
+   color:'#ff6b6b',pLo:250,pHi:900,dLo:1.0,dHi:6,cLo:300,cHi:1000,z:'low-medium',e:'high'},
+  {id:'angry',emoji:'😾',name:'愤怒/威胁',desc:'感到威胁，别靠近',
+   color:'#ff4757',pLo:1500,pHi:7000,dLo:0.2,dHi:4,cLo:2000,cHi:5500,z:'high',e:'medium'},
+  {id:'content',emoji:'😌',name:'满足/放松',desc:'舒服，心情好',
+   color:'#7ec8a0',pLo:20,pHi:150,dLo:1.5,dHi:20,cLo:30,cHi:350,z:'very-low',e:'low'},
+  {id:'mating',emoji:'🚨',name:'发情/领地',desc:'发情期或宣示领地',
+   color:'#b39dff',pLo:300,pHi:800,dLo:1.0,dHi:7,cLo:250,cHi:900,z:'low',e:'high'}
+];
+
+var CAT_BREEDS = [
+  {name:'中华田园猫',traits:'适应力强，聪明',vocal:'中频，变化丰富'},
+  {name:'暹罗猫',traits:'社交强，爱叫',vocal:'高频响亮'},
+  {name:'波斯猫',traits:'安静温和',vocal:'低频轻柔'},
+  {name:'英短',traits:'沉稳独立',vocal:'中低频温和'},
+  {name:'布偶猫',traits:'粘人温顺',vocal:'轻柔中低频'},
+  {name:'美短',traits:'活泼好奇',vocal:'中频'},
+  {name:'缅因猫',traits:'体型大温和',vocal:'低频咕噜声大'},
+  {name:'斯芬克斯猫',traits:'无毛粘人',vocal:'中高频爱交流'},
+  {name:'苏格兰折耳',traits:'安静温柔',vocal:'低频咕噜'},
+  {name:'孟加拉猫',traits:'活力充沛',vocal:'中频'},
+  {name:'橘猫',traits:'贪吃温顺',vocal:'求食频繁'},
+  {name:'黑猫',traits:'聪明独立',vocal:'中低频'},
+  {name:'奶牛猫',traits:'活泼好动',vocal:'中频爱叫'},
+  {name:'三花猫',traits:'温顺亲人',vocal:'中频柔和'},
+  {name:'俄罗斯蓝猫',traits:'安静害羞',vocal:'轻柔少叫'},
+  {name:'挪威森林猫',traits:'独立安静',vocal:'低频咕噜'},
+  {name:'阿比西尼亚猫',traits:'好奇活跃',vocal:'咕噜多'},
+  {name:'东方短毛猫',traits:'社交话多',vocal:'高频响亮'},
+  {name:'土耳其梵猫',traits:'爱玩水',vocal:'中频'},
+  {name:'德文卷毛猫',traits:'粘人活泼',vocal:'中高频'}
+];
+
+// ── Wikipedia 照片 ──
+function breedImg(name){
+  var map={
+    '中华田园猫':'LiHuaMau.jpg','暹罗猫':'Siam_lilacpoint.jpg','波斯猫':'White_Persian_Cat.jpg',
+    '英短':'Britishblue.jpg','布偶猫':'Ragdoll_from_Gatil_Ragbelas.jpg','美短':'American_Shorthair.jpg',
+    '缅因猫':'Maine_Coon_cat_by_Tomitheos.JPG','斯芬克斯猫':'Sphinx2_July_2006.jpg',
+    '苏格兰折耳':'Adult_Scottish_Fold.jpg','孟加拉猫':'Bengal_Cat_(Fia).jpg',
+    '橘猫':'Orange_tabby_cat_sitting_on_fallen_leaves-Hisashi-01A.jpg',
+    '黑猫':'Black_cat_-_Ehemaliges_Streunerkatze_aus_Bukarest.jpg','奶牛猫':'Tuxedo_cat_2013-05-23.jpg',
+    '三花猫':'Calico_cat_-_Phoebe.jpg','俄罗斯蓝猫':'Russian_Blue.jpg',
+    '挪威森林猫':'Norwegian_forest_cat_in_snow.jpg','阿比西尼亚猫':'Abyssinian_cat.jpg',
+    '东方短毛猫':'Oriental_shorthair_20090530.jpg','土耳其梵猫':'Turkish_Van_Cat.jpg',
+    '德文卷毛猫':'Devon_Rex_Cat.jpg'
+  };
+  var f=map[name];if(!f)return'🐱';
+  return '<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/'+f+'/200px-'+f+'" alt="'+name+'" loading=lazy onerror="this.parentElement.innerHTML=\'🐱\'" style="width:100%;height:100%;object-fit:cover">';
+}
+
+// ── 状态 ──
+var audioCtx=null,stream=null,recorder=null,analyser=null;
+var chunks=[],recStart=0,recTimer=null,animId=null;
+var lastResult=null,lastBlob=null,catPhotoData=null;
+var db=null;
+
+// ── 音频引擎 ──
+async function ensureCtx(){
+  if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:SAMPLE_RATE});
+  if(audioCtx.state==='suspended') await audioCtx.resume();
+  return audioCtx;
+}
+
+async function startRec(){
+  try{
+    chunks=[];
+    var ctx=await ensureCtx();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate:SAMPLE_RATE,channelCount:1,echoCancellation:true,noiseSuppression:false}});
+    var src=ctx.createMediaStreamSource(stream);
+    analyser=ctx.createAnalyser();
+    analyser.fftSize=1024;
+    analyser.smoothingTimeConstant=0.3;
+    src.connect(analyser);
+    recorder=new MediaRecorder(stream,{mimeType:'audio/webm;codecs=opus'});
+    recorder.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data)};
+    recorder.onstop=analyze;
+    recorder.start(100);
+    recStart=Date.now();
+    document.getElementById('micBtn').classList.add('recording');
+    document.getElementById('micBtn').textContent='⏹️';
+    document.getElementById('micHint').textContent='录音中…再点停止';
+    document.getElementById('resultsArea').innerHTML='';
+    document.getElementById('saveBtn').style.display='none';
+    document.getElementById('audioRow').style.display='none';
+    updateTimer();
+    recTimer=setInterval(updateTimer,150);
+    drawWave();
+    return true;
+  }catch(e){
+    console.error(e);
+    document.getElementById('micHint').textContent='⚠️ 请允许麦克风权限后重试';
+    return false;
+  }
+}
+
+function stopRec(){
+  if(recorder&&recorder.state==='recording')recorder.stop();
+  if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null;}
+  if(recTimer){clearInterval(recTimer);recTimer=null;}
+  if(animId){cancelAnimationFrame(animId);animId=null;}
+  document.getElementById('micBtn').classList.remove('recording');
+  document.getElementById('micBtn').textContent='🎙️';
+  document.getElementById('micHint').textContent='分析中…';
+  clearWave();
+}
+
+function updateTimer(){
+  var el=(Date.now()-recStart)/1000;
+  if(el>=MAX_SEC)stopRec();
+}
+
+function drawWave(){
+  var cvs=document.getElementById('waveCanvas'),w=cvs.width,h=cvs.height,ctx=cvs.getContext('2d');
+  function f(){
+    if(!analyser)return;
+    var d=new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(d);
+    ctx.clearRect(0,0,w,h);
+    ctx.beginPath();ctx.strokeStyle='#f4a460';ctx.lineWidth=2;
+    var step=Math.floor(d.length/w);
+    for(var x=0;x<w;x++){
+      var sum=0;for(var j=0;j<step;j++)sum+=d[Math.min(x*step+j,d.length-1)];
+      var y=(sum/step/255)*h;
+      if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    animId=requestAnimationFrame(f);
+  }
+  f();
+}
+
+function clearWave(){
+  var cvs=document.getElementById('waveCanvas'),ctx=cvs.getContext('2d');
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+}
+
+// ── 特征分析 (使用浏览器原生 FFT) ──
+async function analyze(){
+  if(chunks.length===0){document.getElementById('micHint').textContent='没录到声音';return;}
+  try{
+    var blob=new Blob(chunks,{type:'audio/webm'});
+    lastBlob=blob;
+    var url=URL.createObjectURL(blob);
+    var player=document.createElement('audio');
+    player.src=url;
+    document.getElementById('audioRow').style.display='flex';
+    document.getElementById('playBtn').onclick=function(){player.play()};
+    document.getElementById('downloadBtn').onclick=function(){
+      var a=document.createElement('a');a.href=url;a.download='meow_'+Date.now()+'.webm';a.click()
+    };
+
+    var buf=await blob.arrayBuffer();
+    var ctx=await ensureCtx();
+    var audioBuf=await ctx.decodeAudioData(buf);
+    var dur=audioBuf.duration;
+    var features=extract(audioBuf);
+
+    // ── 人类声音检测 ──
+    var humanCheck=detectHumanVoice(audioBuf,features,dur);
+
+    // 总是做猫情绪分类（不管人声还是猫叫都输出）
+    var results=classify(features,dur);
+
+    lastResult={features:features,results:results,timestamp:Date.now(),duration:dur,humanCheck:humanCheck};
+    showResults(results,humanCheck);
+    document.getElementById('micHint').textContent='点击开始录音';
+    document.getElementById('saveBtn').style.display='inline-block';
+  }catch(e){
+    console.error(e);
+    document.getElementById('micHint').textContent='分析失败: '+e.message;
+  }
+}
+
+function extract(buf){
+  var s=buf.getChannelData(0),n=s.length,sr=buf.sampleRate;
+
+  // RMS
+  var sum=0;for(var i=0;i<n;i++)sum+=s[i]*s[i];
+  var rms=Math.sqrt(sum/n);
+
+  // Zero-crossing rate
+  var z=0;for(var i=1;i<n;i++)if((s[i]>=0&&s[i-1]<0)||(s[i]<0&&s[i-1]>=0))z++;
+  var zcr=z/n;
+
+  // Find peak frequency using autocorrelation (MUCH faster than DFT)
+  var peakFreq=findPeakFreq(s,sr);
+
+  // Spectral centroid estimation from autocorrelation
+  var centroid=estimateCentroid(s,sr,peakFreq);
+
+  // Low frequency ratio
+  var loE=0,totE=0;
+  for(var i=0;i<n;i++){totE+=s[i]*s[i];}
+  // Simple filter: count energy in low-freq samples
+  var loCount=0;for(var i=1;i<n;i++)if(Math.abs(s[i]-s[i-1])<0.01)loCount++;
+  var loRatio=loCount/n;
+
+  return{rms:rms,zcr:zcr,peakFreq:peakFreq,centroid:centroid,lowRatio:loRatio,sr:sr,n:n};
+}
+
+// Fast peak frequency via autocorrelation
+function findPeakFreq(samples,sr){
+  var n=samples.length,minLag=Math.floor(sr/4000),maxLag=Math.floor(sr/50);
+  if(minLag<1)minLag=1;if(maxLag>n-1)maxLag=n-1;
+  var bestLag=minLag,bestCorr=-1;
+  for(var lag=minLag;lag<maxLag;lag++){
+    var corr=0;for(var i=0;i<n-lag;i++)corr+=samples[i]*samples[i+lag];
+    if(corr>bestCorr){bestCorr=corr;bestLag=lag;}
+  }
+  return sr/bestLag;
+}
+
+function estimateCentroid(samples,sr,peakFreq){
+  // Simple centroid: weight based on autocorrelation spread
+  // For harmonic sounds (cats), centroid is near peak * 1.3
+  // For noise, centroid is higher
+  var n=samples.length,z=0;for(var i=1;i<n;i++)if((samples[i]>=0&&samples[i-1]<0)||(samples[i]<0&&samples[i-1]>=0))z++;
+  var zcr=z/n;
+  if(zcr>0.4)return peakFreq*2.5;  // noisy
+  if(zcr>0.2)return peakFreq*1.8;  // mixed
+  return peakFreq*1.3;  // harmonic
+}
+
+// ── 人类声音检测 ──────────────────────────────────
+// Human voice differs from cat meows in several measurable ways:
+// 1. F0 (fundamental): human 80-550 Hz, cat 300-2000 Hz
+// 2. Formant structure: humans have clear vocal-tract resonances
+// 3. Harmonic richness: human voice has more structured harmonics
+// 4. Spectral tilt: human speech has steeper high-frequency rolloff
+
+function detectHumanVoice(audioBuf, features, dur){
+  var s=audioBuf.getChannelData(0),n=s.length,sr=audioBuf.sampleRate;
+  var score=0, indicators=[], details={};
+
+  // ── 1. 基频检测（人类声音范围 80-550 Hz）──
+  // 在更低的滞后范围内搜索，覆盖人声基频
+  var f0=detectF0(s,sr);
+  details.f0=Math.round(f0);
+  if(f0>=80 && f0<=550){
+    score+=3;
+    if(f0<250) indicators.push('低基频('+Math.round(f0)+'Hz)，典型人声');
+    else indicators.push('基频在人类高声区('+Math.round(f0)+'Hz)，模仿猫叫时人声上限');
+  } else if(f0>550 && f0<2000){
+    score+=1;
+    details.f0Zone='猫叫范围';
+  } else if(f0<80 && f0>30){
+    score+=2;
+    indicators.push('极低基频('+Math.round(f0)+'Hz)，人声低音区');
+  }
+
+  // ── 2. 谐波结构分析 ──
+  // 人声谐波清晰规律（倍频），猫叫谐波较不规则
+  var harmonics=countHarmonics(s,sr,f0);
+  details.harmonics=harmonics;
+  if(harmonics>=4){
+    score+=2;
+    indicators.push('检测到'+harmonics+'个清晰谐波，人声特征');
+  } else if(harmonics>=3){
+    score+=1.5;
+    indicators.push('谐波结构较规则('+harmonics+'个)');
+  }
+
+  // ── 3. 共振峰检测（简化 LPC 思路） ──
+  // 在频谱包络中找峰——人声有稳定的 F1/F2/F3 结构
+  var formants=detectFormantPeaks(s,sr,f0);
+  details.formants=formants.length;
+  if(formants.length>=3){
+    score+=2.5;
+    indicators.push('检测到'+formants.length+'个共振峰，人声结构');
+  } else if(formants.length>=2){
+    score+=1.5;
+    indicators.push('存在共振峰结构('+formants.length+'个)');
+  }
+
+  // ── 4. 频谱斜率（高频衰减速度） ──
+  // 人声高频衰减约 -12dB/octave，猫叫衰减较缓
+  var tilt=estimateSpectralSlope(s,sr);
+  details.spectralSlope=Math.round(tilt);
+  if(tilt<-8){
+    score+=1.5;
+    indicators.push('高频快速衰减('+Math.round(tilt)+'dB/oct)，人声频谱特征');
+  } else if(tilt<-5){
+    score+=0.5;
+  }
+
+  // ── 5. 过零率分布 ——人声更集中，猫叫更分散 ──
+  if(features.zcr>0.05 && features.zcr<0.25){
+    score+=1.0;
+  }
+
+  // ── 最终判断 ──
+  var isHuman=score>=5;
+  var confidence=Math.min(100,Math.round(score/10*100));
+
+  return{
+    isHuman:isHuman,
+    confidence:confidence,
+    score:score,
+    indicators:indicators,
+    details:details
+  };
+}
+
+// 在人类基频范围 (30-600 Hz) 内搜索基频
+function detectF0(samples,sr){
+  var n=samples.length;
+  // 搜索 30-600 Hz 对应的滞后范围
+  var minLag=Math.floor(sr/600),maxLag=Math.floor(sr/30);
+  if(minLag<2)minLag=2;if(maxLag>n-1)maxLag=n-1;
+  if(maxLag<=minLag)return 0;
+
+  var bestLag=minLag,bestCorr=-Infinity;
+  for(var lag=minLag;lag<=maxLag;lag++){
+    var corr=0;
+    for(var i=0;i<n-lag;i++)corr+=samples[i]*samples[i+lag];
+    // 归一化
+    var norm=0;for(var i=0;i<n;i++)norm+=samples[i]*samples[i];
+    if(norm>0)corr=corr/norm;
+    if(corr>bestCorr){bestCorr=corr;bestLag=lag;}
+  }
+  return bestCorr>0.05 ? sr/bestLag : 0;
+}
+
+// 计算谐波数量（从频谱中数峰值）
+function countHarmonics(samples,sr,f0){
+  if(!f0||f0<30)return 0;
+  var n=samples.length;
+  // 简单频谱（用部分 DFT）
+  var fftSize=Math.min(1024,n);
+  var spec=new Float32Array(fftSize/2);
+  var step=Math.floor(n/fftSize);
+  for(var k=0;k<fftSize/2;k++){
+    var re=0,im=0;
+    for(var j=0;j<fftSize;j++){
+      var idx=Math.min(j*step,n-1);
+      var angle=(2*Math.PI*k*j)/fftSize;
+      re+=samples[idx]*Math.cos(angle);
+      im-=samples[idx]*Math.sin(angle);
+    }
+    spec[k]=Math.sqrt(re*re+im*im);
+  }
+
+  // 在 f0 的整数倍位置检测峰值
+  var binWidth=sr/fftSize;
+  var count=0,lastPeak=0;
+  for(var h=1;h<=10;h++){
+    var targetFreq=f0*h;
+    if(targetFreq>sr/2)break;
+    var bin=Math.round(targetFreq/binWidth);
+    if(bin>=fftSize/2)break;
+
+    // 检查局部是否有峰
+    var peak=bin;
+    for(var b=Math.max(1,bin-3);b<=Math.min(fftSize/2-2,bin+3);b++){
+      if(spec[b]>spec[b-1]&&spec[b]>spec[b+1]&&spec[b]>spec[peak])peak=b;
+    }
+
+    // 该峰值是否明显高于背景
+    var bgSum=0,bgCount=0;
+    for(var b=Math.max(1,peak-8);b<=Math.min(fftSize/2-2,peak+8);b++){
+      if(Math.abs(b-peak)>2){bgSum+=spec[b];bgCount++;}
+    }
+    var bg=bgCount>0?bgSum/bgCount:0.001;
+    if(spec[peak]>bg*2.5)count++;
+    lastPeak=peak;
+  }
+  return count;
+}
+
+// 共振峰峰值检测（频谱包络中的峰）
+function detectFormantPeaks(samples,sr,f0){
+  var n=samples.length;
+  var fftSize=Math.min(1024,n);
+  var spec=new Float32Array(fftSize/2);
+  var step=Math.floor(n/fftSize);
+  for(var k=0;k<fftSize/2;k++){
+    var re=0,im=0;
+    for(var j=0;j<fftSize;j++){
+      var idx=Math.min(j*step,n-1);
+      var angle=(2*Math.PI*k*j)/fftSize;
+      re+=samples[idx]*Math.cos(angle);
+      im-=samples[idx]*Math.sin(angle);
+    }
+    spec[k]=Math.sqrt(re*re+im*im);
+  }
+
+  // 平滑频谱获取包络
+  var binWidth=sr/fftSize;
+  var smoothed=new Float32Array(spec.length);
+  for(var i=0;i<spec.length;i++){
+    var sum=0,cnt=0;
+    for(var j=Math.max(0,i-4);j<=Math.min(spec.length-1,i+4);j++){sum+=spec[j];cnt++;}
+    smoothed[i]=sum/cnt;
+  }
+
+  // 在 200-4000 Hz 范围内找包络峰值（人类共振峰范围）
+  var peaks=[];
+  for(var i=Math.floor(200/binWidth)+1;i<Math.min(spec.length-1,Math.floor(4000/binWidth));i++){
+    if(smoothed[i]>smoothed[i-1]&&smoothed[i]>smoothed[i+1]){
+      // 该峰是否明显
+      var meanVal=0;for(var j=0;j<smoothed.length;j++)meanVal+=smoothed[j];
+      meanVal/=smoothed.length;
+      if(smoothed[i]>meanVal*1.3)peaks.push({freq:i*binWidth,amp:smoothed[i]});
+    }
+  }
+  // 按幅度排序，取top
+  peaks.sort(function(a,b){return b.amp-a.amp});
+  return peaks.slice(0,4);
+}
+
+// 频谱斜率估计
+function estimateSpectralSlope(samples,sr){
+  var n=samples.length;
+  var fftSize=Math.min(1024,n);
+  var spec=new Float32Array(fftSize/2);
+  var step=Math.floor(n/fftSize);
+  for(var k=0;k<fftSize/2;k++){
+    var re=0,im=0;
+    for(var j=0;j<fftSize;j++){
+      var idx=Math.min(j*step,n-1);
+      var angle=(2*Math.PI*k*j)/fftSize;
+      re+=samples[idx]*Math.cos(angle);
+      im-=samples[idx]*Math.sin(angle);
+    }
+    spec[k]=Math.max(-100,20*Math.log10(Math.sqrt(re*re+im*im)+1e-10));
+  }
+  // 线性拟合 300-3000 Hz 段
+  var binWidth=sr/fftSize;
+  var sumX=0,sumY=0,sumXY=0,sumX2=0,cnt=0;
+  var loBin=Math.floor(300/binWidth),hiBin=Math.floor(3000/binWidth);
+  for(var i=loBin;i<=hiBin&&i<spec.length;i++){
+    var x=Math.log(i*binWidth),y=spec[i];
+    if(isFinite(y)&&y>-80){sumX+=x;sumY+=y;sumXY+=x*y;sumX2+=x*x;cnt++;}
+  }
+  if(cnt<3)return -6; // default slope
+  var slope=(cnt*sumXY-sumX*sumY)/(cnt*sumX2-sumX*sumX);
+  return slope; // dB per natural-log frequency unit
+}
+
+// ── 情绪分类 ──
+function classify(f,dur){
+  var results=EMOTIONS.map(function(e){
+    var sc=0,w=0;
+
+    // Peak frequency
+    var pmid=(e.pLo+e.pHi)/2,prange=(e.pHi-e.pLo)/2;
+    var pdist=Math.abs(f.peakFreq-pmid)/prange;
+    sc+=3*Math.max(0,1-pdist);w+=3;
+
+    // Duration
+    var dmid=(e.dLo+e.dHi)/2,drange=(e.dHi-e.dLo)/2;
+    var ddist=Math.abs(dur-dmid)/drange;
+    sc+=1.5*Math.max(0,1-ddist);w+=1.5;
+
+    // Centroid
+    var cmid=(e.cLo+e.cHi)/2,crange=(e.cHi-e.cLo)/2;
+    var cdist=Math.abs(f.centroid-cmid)/crange;
+    sc+=2*Math.max(0,1-cdist);w+=2;
+
+    // ZCR
+    var zmap={'very-low':[0,0.06],'low':[0.03,0.12],'low-medium':[0.06,0.18],
+              'medium':[0.10,0.28],'medium-high':[0.18,0.40],
+              'high':[0.25,0.55],'very-high':[0.40,0.75]};
+    var zr=zmap[e.z]||[0.05,0.3];
+    var zmid=(zr[0]+zr[1])/2,zrange=(zr[1]-zr[0])/2+0.01;
+    var zdist=Math.abs(f.zcr-zmid)/zrange;
+    sc+=1.5*Math.max(0,1-zdist);w+=1.5;
+
+    // Energy
+    var emap={'low':[0,0.06],'medium':[0.03,0.15],'medium-high':[0.08,0.3],'high':[0.12,1.0]};
+    var er=emap[e.e]||[0.02,0.2];
+    var emid=(er[0]+er[1])/2,erange=(er[1]-er[0])/2+0.01;
+    var edist=Math.abs(f.rms-emid)/erange;
+    sc+=1*Math.max(0,1-edist);w+=1;
+
+    // Low ratio bonus for content/purring
+    if(e.lowFreq)sc+=2.5*f.lowRatio;
+
+    // Harmonic bonus
+    if(e.harmonic&&f.zcr>0.5)sc-=1.5;
+    if(!e.harmonic&&f.zcr<0.2)sc-=1.0;
+
+    return{emoji:e.emoji,name:e.name,desc:e.desc,color:e.color,prob:Math.max(0,w>0?sc/w:0)};
+  });
+
+  results.sort(function(a,b){return b.prob-a.prob;});
+  var top3=results.slice(0,3);
+  var total=top3.reduce(function(s,r){return s+Math.max(0,r.prob)},0);
+  if(total<0.01)total=3;
+  return top3.map(function(r){
+    return{emoji:r.emoji,name:r.name,desc:r.desc,color:r.color,probability:Math.round(Math.max(0,r.prob)/total*100)};
+  });
+}
+
+// ── 结果显示 ──
+function showResults(results,humanCheck){
+  var area=document.getElementById('resultsArea');
+  var isHuman=humanCheck&&humanCheck.isHuman;
+  var humanBanner=isHuman?
+    '<div style="background:linear-gradient(135deg,#ff8c52,#ff6b6b);border-radius:12px;padding:14px;margin-bottom:12px;text-align:center">'+
+      '<div style="font-size:14px;font-weight:700;color:#fff">🗣️ 这是人类在模仿猫咪叫声</div>'+
+      '<div style="font-size:11px;color:rgba(255,255,255,0.85);margin-top:4px;line-height:1.6">'+
+        '声带振动特征符合人声（置信度 '+humanCheck.confidence+'%）<br>'+
+        humanCheck.indicators.map(function(x){return '· '+x}).join('<br>')+
+      '</div>'+
+    '</div>'
+    : '';
+
+  var comparisonNote=isHuman?
+    '<div style="font-size:11px;color:#a0a0c0;margin:4px 0 8px 0;text-align:center">'+
+      '👇 这声音与以下猫咪情绪最相似'+
+    '</div>'
+    : '';
+
+  area.innerHTML=
+    '<div style="margin-top:8px;font-size:13px;color:#a0a0c0">📊 识别结果（可能性从高到低）</div>'+
+    humanBanner+
+    comparisonNote+
+    results.map(function(r){
+      return '<div class="result-item"><div class="result-emoji">'+r.emoji+'</div>'+
+        '<div class="result-info"><div class="result-name">'+r.name+'</div>'+
+        '<div class="result-desc">'+r.desc+'</div>'+
+        '<div class="result-bar-bg"><div class="result-bar-fg" style="width:'+r.probability+'%;background:'+r.color+'"></div></div></div>'+
+        '<div class="result-pct" style="color:'+r.color+'">'+r.probability+'%</div></div>';
+    }).join('');
+
+  // More detail if human voice detected
+  if(isHuman&&humanCheck.details){
+    area.innerHTML+=
+      '<div style="margin-top:10px;background:#2d2d4a;border-radius:10px;padding:10px;font-size:10px;color:#6a6a88;line-height:1.8">'+
+        '🔬 声学参数：F0='+humanCheck.details.f0+'Hz · '+
+        '谐波数='+humanCheck.details.harmonics+' · '+
+        '共振峰='+humanCheck.details.formants+' · '+
+        '频谱斜率='+humanCheck.details.spectralSlope+'dB/oct'+
+      '</div>';
+  }
+
+  // Animate
+  setTimeout(function(){
+    var bars=area.querySelectorAll('.result-bar-fg');
+    bars.forEach(function(b){var w=b.style.width;b.style.width='0%';requestAnimationFrame(function(){b.style.width=w})});
+  },50);
+}
+
+// ── 品种识别 (TF.js) ──
+var tfLoaded=false,mobilenetModel=null;
+
+function loadTF(cb){
+  if(tfLoaded){cb();return;}
+  var s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js';
+  s.onload=function(){tfLoaded=true;cb()};
+  s.onerror=function(){document.getElementById('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">加载TF.js失败，请检查网络</div>'};
+  document.head.appendChild(s);
+}
+
+function loadModel(cb){
+  if(mobilenetModel){cb(mobilenetModel);return;}
+  document.getElementById('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:12px;color:#a0a0c0">下载识别模型中(~5MB)</div>';
+  tf.loadGraphModel('https://tfhub.dev/google/tfjs-model/imagenet/mobilenet_v2_140_224/classification/3/default/1',{fromTFHub:true}).then(function(m){
+    mobilenetModel=m;cb(m);
+  }).catch(function(e){
+    document.getElementById('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">模型下载失败，请检查网络</div>';
+    console.error(e);
+  });
+}
+
+function analyzeBreed(){
+  var img=document.getElementById('photoPreview').querySelector('img');
+  if(!img)return;
+  document.getElementById('breedResults').innerHTML='<div class="spinner"></div>';
+  loadTF(function(){
+    loadModel(function(model){
+      var t=tf.tidy(function(){
+        return tf.browser.fromPixels(img).resizeBilinear([224,224]).expandDims(0).toFloat().div(127.5).sub(1);
+      });
+      model.predict(t).data().then(function(preds){
+        t.dispose();
+        var items=[];for(var i=0;i<preds.length;i++)items.push({idx:i,prob:preds[i]});
+        items.sort(function(a,b){return b.prob-a.prob});
+        var top10=items.slice(0,10);
+
+        // Cat ImageNet IDs
+        var catIds={281:true,282:true,283:true,284:true,285:true,286:true,287:true,288:true,289:true,290:true,291:true};
+        var catLabels={281:'虎斑猫/橘猫',282:'虎猫',283:'波斯猫',284:'暹罗猫',285:'埃及猫',286:'美洲狮',287:'猞猁',288:'狮子',289:'猎豹',290:'雪豹',291:'缅因猫'};
+
+        var isCat=top10.some(function(t){return catIds[t.idx]});
+        var catMatches=top10.filter(function(t){return catIds[t.idx]}).map(function(t){return{name:catLabels[t.idx]||'猫',prob:Math.round(t.prob*100)}});
+
+        if(!isCat||(catMatches.length===0&&top10[0].prob>0.25)){
+          document.getElementById('breedResults').innerHTML=
+            '<div style="text-align:center;padding:16px"><div style="font-size:48px;margin-bottom:8px">📸❌</div>'+
+            '<div style="font-size:15px;font-weight:600;color:#ff8c52">这不是猫咪</div>'+
+            '<div style="font-size:12px;color:#a0a0c0;margin-top:4px">请拍摄真实猫咪照片</div>'+
+            '<div style="margin-top:8px;font-size:11px;color:#6a6a88">AI看到: '+
+            (catMatches.length>0?'猫咪相关':'非猫类物体')+'</div></div>';
+          return;
+        }
+
+        var top=catMatches.slice(0,3);
+        var total=top.reduce(function(s,r){return s+r.prob},0);
+        if(total===0)total=3;
+        top.forEach(function(r){r.probability=Math.round(r.prob/total*100)});
+
+        document.getElementById('breedResults').innerHTML=
+          '<div style="margin-top:8px;font-size:13px;color:#a0a0c0">📸 识别结果</div>'+
+          top.map(function(r,i){
+            var db=CAT_BREEDS.find(function(b){return r.name.indexOf(b.name)>=0||(b.name&&r.name.indexOf(b.name.substring(0,2))>=0)});
+            return '<div class="result-item">'+
+              '<div style="min-width:56px;height:56px;border-radius:10px;overflow:hidden;flex-shrink:0;background:#2d2d4a">'+
+              breedImg(db?db.name:'猫')+'</div>'+
+              '<div class="result-info"><div class="result-name">'+(db?db.name:r.name)+'</div>'+
+              '<div class="result-desc">'+(db?'性格:'+db.traits+' | 叫声:'+db.vocal:'图鉴暂无')+'</div>'+
+              '<div class="result-bar-bg"><div class="result-bar-fg" style="width:'+r.probability+'%;background:#f4a460"></div></div></div>'+
+              '<div class="result-pct" style="color:#f4a460">'+r.probability+'%</div></div>';
+          }).join('');
+      });
+    });
+  });
+}
+
+// ── IndexedDB ──
+function openDB(cb){
+  var req=indexedDB.open('CatDB',1);
+  req.onupgradeneeded=function(e){if(!e.target.result.objectStoreNames.contains('cats'))e.target.result.createObjectStore('cats',{keyPath:'id',autoIncrement:true})};
+  req.onsuccess=function(e){db=e.target.result;cb()};
+  req.onerror=function(e){console.error('DB error:',e);cb()};
+}
+
+function getCats(cb){
+  if(!db){cb([]);return;}
+  var tx=db.transaction('cats','readonly'),store=tx.objectStore('cats'),req=store.getAll();
+  req.onsuccess=function(){cb(req.result||[])};req.onerror=function(){cb([])};
+}
+
+function addCat(cat,cb){
+  if(!db){cb(null);return;}
+  var tx=db.transaction('cats','readwrite'),store=tx.objectStore('cats'),req=store.add(cat);
+  req.onsuccess=function(){cb(req.result)};req.onerror=function(){cb(null)};
+}
+
+function updateCat(id,data,cb){
+  if(!db){cb(false);return;}
+  var tx=db.transaction('cats','readwrite'),store=tx.objectStore('cats');
+  var gr=store.get(id);
+  gr.onsuccess=function(){
+    var cat=gr.result;if(!cat){cb(false);return;}
+    Object.assign(cat,data);store.put(cat).onsuccess=function(){cb(true)};
+  };
+  gr.onerror=function(){cb(false)};
+}
+
+function deleteCat(id,cb){
+  if(!db){cb(false);return;}
+  var tx=db.transaction('cats','readwrite'),store=tx.objectStore('cats');
+  store.delete(id).onsuccess=function(){cb(true)};
+}
+
+// ── 图鉴 ──
+function renderBreedGrid(){
+  var grid=document.getElementById('breedGrid');
+  grid.innerHTML=CAT_BREEDS.map(function(b){
+    return '<div class="breed-chip" onclick="showBreed(\''+b.name+'\')">'+
+      breedImg(b.name)+'<div class="label">'+b.name+'</div></div>';
+  }).join('');
+}
+
+function showBreed(name){
+  var b=CAT_BREEDS.find(function(x){return x.name===name});if(!b)return;
+  document.getElementById('detailContent').innerHTML=
+    '<div style="text-align:center"><div style="width:100%;height:180px;border-radius:12px;overflow:hidden;margin-bottom:12px;background:#2d2d4a;display:flex;align-items:center;justify-content:center">'+
+    breedImg(name)+'</div><h3>'+b.name+'</h3>'+
+    '<div style="font-size:13px;color:#a0a0c0;margin:6px 0">性格：'+b.traits+'</div>'+
+    '<div style="font-size:13px;color:#a0a0c0;margin:6px 0">叫声：'+b.vocal+'</div></div>';
+  document.getElementById('detailModal').style.display='flex';
+}
+
+// ── 猫咪列表 ──
+function renderCatList(){
+  getCats(function(cats){
+    var list=document.getElementById('catList');
+    if(cats.length===0){list.innerHTML='<div class="empty"><div class="icon">🐱</div><div>还没有添加猫咪</div></div>';return;}
+    list.innerHTML=cats.map(function(c){
+      var recs=c.recordings||[];
+      return '<div class="cat-card" onclick="viewCat('+c.id+')">'+
+        '<div class="cat-avatar">'+(c.photo?'<img src="'+c.photo+'">':'🐱')+'</div>'+
+        '<div class="cat-info"><div class="cat-name">'+(c.name||'未命名')+'</div>'+
+        '<div class="cat-meta">'+(c.breed||'未知')+' · '+recs.length+'条记录</div></div>'+
+        '<button class="btn-small" style="background:#ff4757;color:#fff;font-size:10px;padding:6px 10px" onclick="event.stopPropagation();delCat('+c.id+')">🗑</button></div>';
+    }).join('');
+  });
+}
+
+function viewCat(id){
+  getCats(function(cats){
+    var c=cats.find(function(x){return x.id===id});if(!c)return;
+    var recs=c.recordings||[];
+    document.getElementById('detailContent').innerHTML=
+      '<div style="text-align:center"><div style="width:100px;height:100px;border-radius:50%;overflow:hidden;margin:0 auto 12px;background:#2d2d4a;display:flex;align-items:center;justify-content:center">'+
+      (c.photo?'<img src="'+c.photo+'" style="width:100%;height:100%;object-fit:cover">':'<span style="font-size:48px">🐱</span>')+'</div>'+
+      '<h3>'+(c.name||'未命名')+'</h3>'+
+      '<div style="font-size:12px;color:#a0a0c0">品种：'+(c.breed||'未知')+'</div>'+
+      '<div style="font-size:12px;color:#a0a0c0;margin-top:4px">声音记录：'+recs.length+'条</div>'+
+      (recs.length>0?'<div style="margin-top:8px;text-align:left;font-size:11px;color:#a0a0c0">'+
+        recs.slice(-3).reverse().map(function(r){return '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+          new Date(r.t).toLocaleString('zh-CN')+': '+ (r.e||[]).slice(0,2).map(function(e){return e.n+e.p+'%'}).join(', ')+'</div>'}).join('')+'</div>':'')+'</div>';
+    document.getElementById('detailModal').style.display='flex';
+  });
+}
+
+function delCat(id){
+  if(!confirm('确定删除？'))return;
+  deleteCat(id,function(){renderCatList()});
+}
+
+function saveToCat(){
+  if(!lastResult){toast('请先录音');return;}
+  getCats(function(cats){
+    if(cats.length===0){toast('请先在「我的猫咪」中添加一只猫');return;}
+    var html='<h3>💾 保存到…</h3>';
+    cats.forEach(function(c){html+='<div class="cat-card" onclick="doSave('+c.id+')" style="cursor:pointer"><div class="cat-avatar">'+(c.photo?'<img src="'+c.photo+'">':'🐱')+'</div><div class="cat-info"><div class="cat-name">'+c.name+'</div></div></div>'});
+    document.getElementById('detailContent').innerHTML=html;
+    document.getElementById('detailModal').style.display='flex';
+  });
+}
+
+function doSave(catId){
+  var rec={t:lastResult.timestamp,d:Math.round(lastResult.duration*1000),
+    e:lastResult.results.slice(0,3).map(function(r){return{n:r.name,p:r.probability}})};
+  getCats(function(cats){
+    var c=cats.find(function(x){return x.id===catId});if(!c)return;
+    var recs=c.recordings||[];recs.push(rec);
+    if(recs.length>50)recs.shift();
+    updateCat(catId,{recordings:recs},function(){
+      document.getElementById('detailModal').style.display='none';toast('✅ 已保存！');
+    });
+  });
+}
+
+// ── 工具 ──
+function toast(msg){
+  var t=document.createElement('div');t.className='toast';t.textContent=msg;
+  document.body.appendChild(t);setTimeout(function(){t.remove()},2200);
+}
+
+// ── 事件绑定 ──
+document.getElementById('micBtn').onclick=function(){
+  if(this.classList.contains('recording'))stopRec();else startRec();
+};
+
+// Tabs
+document.querySelectorAll('.tab-btn').forEach(function(b){
+  b.onclick=function(){
+    document.querySelectorAll('.tab-btn').forEach(function(x){x.classList.remove('active')});
+    document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active')});
+    this.classList.add('active');
+    document.getElementById(this.dataset.panel).classList.add('active');
+    if(this.dataset.panel==='panel-cats')renderCatList();
+    if(this.dataset.panel==='panel-guide')renderBreedGrid();
+  };
+});
+
+// Photo
+function handlePhoto(file){
+  if(!file)return;
+  var r=new FileReader();
+  r.onload=function(e){
+    document.getElementById('photoPreview').innerHTML='<img src="'+e.target.result+'">';
+    document.getElementById('analyzeBtn').disabled=false;
+  };
+  r.readAsDataURL(file);
+}
+document.getElementById('cameraInput').onchange=function(e){handlePhoto(e.target.files[0])};
+document.getElementById('galleryInput').onchange=function(e){handlePhoto(e.target.files[0])};
+document.getElementById('analyzeBtn').onclick=analyzeBreed;
+
+// Save
+document.getElementById('saveBtn').onclick=saveToCat;
+
+// Add cat
+document.getElementById('addCatBtn').onclick=function(){
+  catPhotoData=null;
+  document.getElementById('catPhotoPreview').innerHTML='<span class="placeholder">📷</span>';
+  document.getElementById('catNameInput').value='';
+  document.getElementById('addCatModal').style.display='flex';
+};
+document.getElementById('cancelAdd').onclick=function(){document.getElementById('addCatModal').style.display='none'};
+document.getElementById('confirmAdd').onclick=function(){
+  var name=document.getElementById('catNameInput').value.trim();
+  if(!name){toast('请输入名字');return;}
+  addCat({name:name,photo:catPhotoData,breed:'',recordings:[],createdAt:Date.now()},function(){
+    document.getElementById('addCatModal').style.display='none';toast('✅ 已添加！');renderCatList();
+  });
+};
+document.getElementById('catPhotoInput').onchange=function(e){
+  var f=e.target.files[0];if(!f)return;
+  var r=new FileReader();
+  r.onload=function(ev){
+    var img=new Image();
+    img.onload=function(){
+      var c=document.createElement('canvas'),mx=300,w=img.width,h=img.height;
+      if(w>h){h=Math.round(h*mx/w);w=mx}else{w=Math.round(w*mx/h);h=mx}
+      c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);
+      catPhotoData=c.toDataURL('image/jpeg',0.7);
+      document.getElementById('catPhotoPreview').innerHTML='<img src="'+catPhotoData+'">';
+    };
+    img.src=ev.target.result;
+  };
+  r.readAsDataURL(f);
+};
+
+// Close modals
+document.getElementById('addCatModal').onclick=function(e){if(e.target===this)this.style.display='none'};
+document.getElementById('detailModal').onclick=function(e){if(e.target===this)this.style.display='none'};
+
+// ── 启动 ──
+openDB(function(){console.log('DB ready')});
+renderBreedGrid();
+</script>
+</body>
+</html>
