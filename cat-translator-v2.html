@@ -199,22 +199,27 @@ input[type=file]{display:none}
     </div>
   </div>
 
-  <!-- 🐱 我的猫 -->
-  <div class="panel" id="panel-cats">
-
   <!-- Camera modal -->
   <div class="modal-overlay" id="cameraModal" style="display:none">
-    <div class="modal" style="max-width:340px;padding:16px">
-      <h3 style="text-align:center">📷 拍照</h3>
-      <video id="camVideo" autoplay playsinline style="width:100%;height:240px;object-fit:cover;border-radius:12px;background:#000;margin:8px 0"></video>
+    <div class="modal" style="max-width:340px;padding:12px">
+      <h3 style="text-align:center;margin-bottom:8px">📷 拍照</h3>
+      <video id="camVideo" autoplay playsinline muted style="width:100%;height:240px;object-fit:cover;border-radius:12px;background:#000;margin:4px 0;display:none"></video>
       <canvas id="camCanvas" style="display:none"></canvas>
-      <div id="camError" style="font-size:11px;color:#ff6b6b;text-align:center;margin:8px 0;display:none"></div>
-      <div class="row">
-        <button class="btn btn-secondary" onclick="closeCamera()">取消</button>
-        <button class="btn btn-primary" onclick="snapPhoto()">📸 拍摄</button>
+      <div id="camLoading" style="text-align:center;padding:60px 0;color:#a0a0c0;font-size:13px">
+        <div class="spinner"></div>
+        正在启动相机…
+      </div>
+      <div id="camError" style="font-size:11px;color:#ff6b6b;text-align:center;margin:6px 0;display:none"></div>
+      <div class="row" style="margin-top:8px;align-items:center">
+        <button class="btn btn-small" id="camFlipBtn" onclick="flipCamera()" style="flex:none;width:40px;height:40px;border-radius:50%;padding:0;font-size:18px;display:none" title="翻转摄像头">🔄</button>
+        <button class="btn btn-secondary" onclick="closeCamera()" style="flex:1;margin:0">取消</button>
+        <button class="btn btn-primary" onclick="snapPhoto()" style="flex:1;margin:0">📸 拍摄</button>
       </div>
     </div>
   </div>
+
+  <!-- 🐱 我的猫 -->
+  <div class="panel" id="panel-cats">
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0">
       <h3 style="margin:0">🐱 我的猫咪</h3>
@@ -1037,55 +1042,127 @@ function handlePhoto(file){
 // Gallery input (no capture → opens gallery/file picker)
 document.getElementById('galleryInput').onchange=function(e){handlePhoto(e.target.files[0])};
 
-// Open camera (capture=environment triggers native camera app)
+// ── Camera functions ─────────────────────────────
+var _camStream = null;
+var _camFacing = 'environment';  // default: back camera
+
 function openCamera(){
-  // Try getUserMedia on desktop, fallback to mobile capture
   var vid = document.getElementById('camVideo');
   var modal = document.getElementById('cameraModal');
+  var loading = document.getElementById('camLoading');
   var errDiv = document.getElementById('camError');
+  var flipBtn = document.getElementById('camFlipBtn');
+
+  // Reset state
   errDiv.style.display = 'none';
+  vid.style.display = 'none';
+  loading.style.display = 'block';
+  flipBtn.style.display = 'none';
   modal.style.display = 'flex';
 
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'environment'}}).then(function(stream){
-      vid.srcObject = stream;
-      vid.play();
-      window._camStream = stream;
-    }).catch(function(e){
-      // Try again with any camera
-      navigator.mediaDevices.getUserMedia({video:true}).then(function(stream){
-        vid.srcObject = stream;
-        vid.play();
-        window._camStream = stream;
-      }).catch(function(e2){
-        errDiv.style.display = 'block';
-        errDiv.textContent = '无法打开摄像头，请确认已授权相机权限，或使用相册上传照片';
-        // Fallback: try file input as last resort
-        document.getElementById('galleryInput').click();
-        modal.style.display = 'none';
-      });
-    });
-  } else {
+  // Close any existing stream
+  if (_camStream) {
+    _camStream.getTracks().forEach(function(t){t.stop();});
+    _camStream = null;
+  }
+  vid.srcObject = null;
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     errDiv.style.display = 'block';
     errDiv.textContent = '此浏览器不支持摄像头，请使用相册上传';
+    loading.style.display = 'none';
+    return;
   }
+
+  startCameraStream(vid, loading, errDiv, flipBtn);
+}
+
+function startCameraStream(vid, loading, errDiv, flipBtn){
+  var constraints = {video:{width:640,height:480,facingMode:_camFacing}};
+
+  navigator.mediaDevices.getUserMedia(constraints).then(function(stream){
+    _camStream = stream;
+    vid.srcObject = stream;
+    vid.onloadedmetadata = function(){
+      vid.play();
+      vid.style.display = 'block';
+      loading.style.display = 'none';
+      // Show flip button if device has multiple cameras
+      if (navigator.mediaDevices.enumerateDevices) {
+        flipBtn.style.display = 'inline-flex';
+      }
+    };
+  }).catch(function(e){
+    // Try without specific facingMode
+    if (_camFacing !== 'user') {
+      _camFacing = 'user';
+      navigator.mediaDevices.getUserMedia({video:true}).then(function(stream){
+        _camStream = stream;
+        vid.srcObject = stream;
+        vid.onloadedmetadata = function(){
+          vid.play();
+          vid.style.display = 'block';
+          loading.style.display = 'none';
+          flipBtn.style.display = 'inline-flex';
+        };
+      }).catch(function(e2){
+        loading.style.display = 'none';
+        errDiv.style.display = 'block';
+        errDiv.textContent = '无法打开摄像头，请确认已授权相机权限';
+        flipBtn.style.display = 'none';
+        // Fallback to gallery on mobile
+        document.getElementById('galleryInput').click();
+        closeCamera();
+      });
+    } else {
+      loading.style.display = 'none';
+      errDiv.style.display = 'block';
+      errDiv.textContent = '无法打开摄像头，请使用相册上传';
+      flipBtn.style.display = 'none';
+    }
+  });
+}
+
+function flipCamera(){
+  _camFacing = (_camFacing === 'environment') ? 'user' : 'environment';
+  var vid = document.getElementById('camVideo');
+  var loading = document.getElementById('camLoading');
+  var errDiv = document.getElementById('camError');
+  var flipBtn = document.getElementById('camFlipBtn');
+
+  // Stop current stream
+  if (_camStream) {
+    _camStream.getTracks().forEach(function(t){t.stop();});
+    _camStream = null;
+  }
+  vid.srcObject = null;
+  vid.style.display = 'none';
+  loading.style.display = 'block';
+
+  startCameraStream(vid, loading, errDiv, flipBtn);
 }
 
 function closeCamera(){
-  var stream = window._camStream;
-  if (stream) {
-    stream.getTracks().forEach(function(t){t.stop();});
-    window._camStream = null;
+  if (_camStream) {
+    _camStream.getTracks().forEach(function(t){t.stop();});
+    _camStream = null;
   }
-  document.getElementById('camVideo').srcObject = null;
+  var vid = document.getElementById('camVideo');
+  vid.srcObject = null;
+  vid.style.display = 'none';
   document.getElementById('cameraModal').style.display = 'none';
 }
 
 function snapPhoto(){
   var vid = document.getElementById('camVideo');
   var canvas = document.getElementById('camCanvas');
-  canvas.width = vid.videoWidth || 640;
-  canvas.height = vid.videoHeight || 480;
+  if (!vid.videoWidth) {
+    document.getElementById('camError').style.display = 'block';
+    document.getElementById('camError').textContent = '相机未就绪，请稍等再拍';
+    return;
+  }
+  canvas.width = vid.videoWidth;
+  canvas.height = vid.videoHeight;
   var ctx = canvas.getContext('2d');
   ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
   var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
