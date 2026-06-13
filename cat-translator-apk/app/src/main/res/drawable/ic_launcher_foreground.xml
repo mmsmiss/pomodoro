@@ -1,39 +1,95 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cat face + speech bubbles for launcher icon -->
+<!-- Cute pink cat face icon for launcher -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Cat head -->
+    <!-- Cat head (round pink face) -->
     <path
-        android:fillColor="#f4a460"
-        android:pathData="M54,36m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0" />
+        android:fillColor="#ff8a9e"
+        android:pathData="M54,28 C78,28 96,46 96,64 C96,86 74,92 54,92 C34,92 12,86 12,64 C12,46 30,28 54,28Z" />
 
     <!-- Left ear -->
     <path
-        android:fillColor="#f4a460"
-        android:pathData="M26,36 L24,14 L46,36Z" />
+        android:fillColor="#ff6b8a"
+        android:pathData="M22,42 L16,10 L44,32Z" />
+    <!-- Left ear inner -->
+    <path
+        android:fillColor="#ffb6c1"
+        android:pathData="M24,36 L20,16 L38,32Z" />
 
     <!-- Right ear -->
     <path
-        android:fillColor="#f4a460"
-        android:pathData="M82,36 L84,14 L62,36Z" />
+        android:fillColor="#ff6b8a"
+        android:pathData="M86,42 L92,10 L64,32Z" />
+    <!-- Right ear inner -->
+    <path
+        android:fillColor="#ffb6c1"
+        android:pathData="M84,36 L88,16 L70,32Z" />
 
-    <!-- Eyes (dark circles) -->
-    <path android:fillColor="#1a1a2e"
-        android:pathData="M46,36m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
-    <path android:fillColor="#1a1a2e"
-        android:pathData="M62,36m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <!-- Left eye (big cute anime eye) -->
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M34,52 C34,46 42,42 46,46 C46,42 54,46 54,52 C54,58 46,62 42,62 C42,62 34,58 34,52Z" />
+    <!-- Left pupil -->
+    <path
+        android:fillColor="#5d3a4a"
+        android:pathData="M40,50 C40,46 44,44 44,46 C44,42 48,44 48,50 C48,56 44,58 44,58 C44,58 40,56 40,50Z" />
+    <!-- Left eye shine -->
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M46,46m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
 
-    <!-- Nose -->
-    <path android:fillColor="#ff8c52"
-        android:pathData="M52,40 L56,40 L54,43Z" />
+    <!-- Right eye (big cute anime eye) -->
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M54,52 C54,46 62,42 66,46 C66,42 74,46 74,52 C74,58 66,62 62,62 C62,62 54,58 54,52Z" />
+    <!-- Right pupil -->
+    <path
+        android:fillColor="#5d3a4a"
+        android:pathData="M60,50 C60,46 64,44 64,46 C64,42 68,44 68,50 C68,56 64,58 64,58 C64,58 60,56 60,50Z" />
+    <!-- Right eye shine -->
+    <path
+        android:fillColor="#ffffff"
+        android:pathData="M66,46m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
 
-    <!-- Mouth -->
-    <path android:fillColor="#00000000"
-        android:strokeColor="#ff8c52"
+    <!-- Tiny nose (pink triangle) -->
+    <path
+        android:fillColor="#ff4757"
+        android:pathData="M52,60 L56,60 L54,63Z" />
+
+    <!-- Mouth (happy W shape) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#ff4757"
         android:strokeWidth="1.5"
-        android:pathData="M50,44 Q54,48 54,44 Q54,48 58,44" />
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M48,64 Q51,68 54,64 Q57,68 60,64" />
+
+    <!-- Left whiskers -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#ffffff"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:pathData="M28,58 L10,54 M28,62 L10,62 M28,66 L10,70" />
+
+    <!-- Right whiskers -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#ffffff"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:pathData="M80,58 L98,54 M80,62 L98,62 M80,66 L98,70" />
+
+    <!-- Little heart above head -->
+    <path
+        android:fillColor="#ff6b8a"
+        android:pathData="M54,16 C54,13 51,10 48,13 C45,10 42,13 42,16 C42,19 48,24 54,24 C60,19 60,19 54,24" />
+    <path
+        android:fillColor="#ff4757"
+        android:pathData="M54,16 C54,13 51,10 48,13 C45,10 42,13 42,16 C42,19 48,21 54,21 C60,21 60,19 54,24" />
 </vector>

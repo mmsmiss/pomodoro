@@ -41,8 +41,8 @@ public class MainActivity extends Activity {
             WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
             WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
         );
-        getWindow().setStatusBarColor(0xff1a1a2e);
-        getWindow().setNavigationBarColor(0xff1a1a2e);
+        getWindow().setStatusBarColor(0xffffb6c1);
+        getWindow().setNavigationBarColor(0xffffd4de);
 
         webView = new WebView(this);
         setContentView(webView);

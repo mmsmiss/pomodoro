@@ -84,7 +84,7 @@ jobs:
       - name: Copy HTML + model into assets
         run: |
           mkdir -p cat-translator-apk/app/src/main/assets
-          cp cat-translator-v2.html cat-translator-apk/app/src/main/assets/index.html
+          cp cat-translator-cute.html cat-translator-apk/app/src/main/assets/index.html
           echo "=== Assets ==="
           ls -la cat-translator-apk/app/src/main/assets/
 

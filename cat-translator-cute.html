@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🐱 小猫在说什么？</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:linear-gradient(180deg,#fff0f5 0%,#fce4ec 30%,#f8bbd0 100%);
+  color:#5d3a4a;font-family:"PingFang SC","Microsoft YaHei","Comic Sans MS",sans-serif;
+  display:flex;justify-content:center;min-height:100vh;
+  background-attachment:fixed;
+}
+/* Floating paw prints */
+body::before{
+  content:'🐾   🐾   🐾   🐾   🐾   🐾   🐾   🐾';
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  font-size:20px;opacity:0.06;pointer-events:none;z-index:0;
+  white-space:pre-wrap;word-break:break-all;line-height:80px;letter-spacing:30px;
+}
+.app{width:100%;max-width:420px;padding:16px 16px 80px;position:relative;z-index:1}
+.header{text-align:center;padding:24px 0 8px}
+.header h1{font-size:26px;text-shadow:2px 2px 0 rgba(255,154,162,0.3)}
+.header .sub{font-size:14px;color:#e8899a;margin-top:6px}
+
+/* Tabs — candy colors */
+.tab-bar{
+  position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:420px;
+  background:rgba(255,255,255,0.92);backdrop-filter:blur(10px);
+  display:flex;padding:8px 0;border-radius:20px 20px 0 0;
+  box-shadow:0 -4px 20px rgba(255,154,162,0.15);z-index:100
+}
+.tab-btn{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;
+  border:none;background:none;color:#c9a0b0;font-size:10px;cursor:pointer;transition:all 0.2s
+}
+.tab-btn.active{color:#ff6b8a;transform:scale(1.08)}
+.tab-btn .icon{font-size:22px}
+
+.panel{display:none}
+.panel.active{display:block;animation:in 0.3s}
+@keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+.card{
+  background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);
+  border-radius:24px;padding:20px;margin:12px 0;
+  box-shadow:0 8px 30px rgba(255,154,162,0.12);
+  border:2px solid rgba(255,182,193,0.3);
+}
+.card h3{font-size:16px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+
+/* Mic — big cute pink button */
+.mic-area{display:flex;flex-direction:column;align-items:center;padding:20px 0 8px}
+.mic-btn{
+  width:100px;height:100px;border-radius:50%;
+  border:4px solid #ff8a9e;background:linear-gradient(135deg,#fff0f5,#ffe4e1);
+  color:#ff6b8a;font-size:42px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 6px 30px rgba(255,107,138,0.25);
+  transition:all 0.2s;position:relative
+}
+.mic-btn::after{
+  content:'🐾';position:absolute;font-size:16px;top:-10px;right:-10px;
+  animation:bounce 2s ease-in-out infinite;opacity:0.5
+}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.mic-btn:active{transform:scale(1.05)}
+.mic-btn.recording{
+  background:linear-gradient(135deg,#ff6b8a,#ff4757);border-color:#ff4757;color:#fff;
+  animation:pulse 1s infinite;box-shadow:0 0 50px rgba(255,107,138,0.5)
+}
+.mic-btn.recording::after{content:''}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+.mic-hint{margin-top:12px;font-size:14px;color:#e8899a;text-align:center;font-weight:600}
+
+.wave-canvas{width:100%;height:60px;border-radius:14px;background:rgba(255,182,193,0.15);margin:6px 0}
+
+/* Buttons */
+.btn{
+  display:block;width:100%;padding:14px;border:none;border-radius:16px;
+  font-size:14px;font-weight:700;cursor:pointer;margin:8px 0;transition:all 0.2s
+}
+.btn:active{transform:scale(0.97)}
+.btn-primary{background:linear-gradient(135deg,#ff8a9e,#ff6b8a);color:#fff;box-shadow:0 4px 16px rgba(255,107,138,0.25)}
+.btn-secondary{background:rgba(255,182,193,0.2);color:#d4687c;border:1.5px solid rgba(255,154,162,0.3)}
+.btn-small{
+  display:inline-block;padding:8px 18px;border:none;border-radius:12px;
+  font-size:12px;font-weight:700;cursor:pointer;
+  background:linear-gradient(135deg,#ffb6c1,#ff9aa2);color:#fff;box-shadow:0 3px 10px rgba(255,107,138,0.2)
+}
+.btn-play{width:100%;padding:10px;border:none;border-radius:12px;background:rgba(255,182,193,0.18);color:#d4687c;font-size:13px;cursor:pointer;font-weight:600}
+
+/* Results */
+.result-item{
+  display:flex;align-items:center;gap:10px;padding:10px 0;
+  border-bottom:1.5px dashed rgba(255,182,193,0.25)
+}
+.result-item:last-child{border:none}
+.result-emoji{font-size:38px;min-width:44px;text-align:center}
+.result-info{flex:1}
+.result-name{font-size:15px;font-weight:700;color:#5d3a4a}
+.result-desc{font-size:12px;color:#c08497;margin-top:3px}
+.result-bar-bg{height:6px;border-radius:4px;background:rgba(255,182,193,0.2);margin-top:5px;overflow:hidden}
+.result-bar-fg{height:100%;border-radius:4px;transition:width 0.7s cubic-bezier(0.4,0,0.2,1)}
+.result-pct{font-size:18px;font-weight:800;min-width:42px;text-align:right}
+
+/* Photo */
+.photo-preview{
+  width:100%;height:200px;border-radius:20px;background:rgba(255,182,193,0.1);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  margin:8px 0;border:3px dashed #ffb6c1;cursor:pointer
+}
+.photo-preview img{width:100%;height:100%;object-fit:cover}
+.photo-preview .placeholder{font-size:48px;opacity:0.5}
+input[type=file]{display:none}
+
+.breed-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.breed-chip{
+  background:rgba(255,255,255,0.8);border-radius:16px;overflow:hidden;cursor:pointer;
+  box-shadow:0 4px 16px rgba(255,154,162,0.12);transition:all 0.2s
+}
+.breed-chip:active{transform:scale(0.95)}
+.breed-chip img{width:100%;height:100px;object-fit:cover;display:block;background:#fce4ec}
+.breed-chip .label{padding:8px 6px;font-weight:700;font-size:11px;text-align:center;color:#5d3a4a}
+
+.modal-overlay{
+  position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.3);
+  backdrop-filter:blur(3px);z-index:200;display:flex;align-items:center;justify-content:center
+}
+.modal{
+  background:#fff;border-radius:24px;padding:24px;width:90%;max-width:350px;
+  box-shadow:0 12px 40px rgba(0,0,0,0.1);border:2px solid #ffe4e1
+}
+.modal h3{margin-bottom:16px;color:#5d3a4a}
+.modal input{
+  width:100%;padding:14px;border-radius:14px;border:2px solid #ffd4de;
+  background:#fffafc;color:#5d3a4a;font-size:14px;margin:6px 0;outline:none
+}
+.modal input:focus{border-color:#ff8a9e}
+.modal .row{display:flex;gap:10px;margin-top:16px}
+.modal .row .btn{flex:1}
+
+.cat-card{
+  background:rgba(255,255,255,0.85);border-radius:18px;padding:14px;margin:8px 0;
+  display:flex;gap:14px;align-items:center;cursor:pointer;
+  border:1.5px solid rgba(255,182,193,0.3);transition:all 0.2s
+}
+.cat-card:active{transform:scale(0.98)}
+.cat-avatar{
+  width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#ffe4e1,#ffd4de);
+  display:flex;align-items:center;justify-content:center;font-size:28px;
+  overflow:hidden;flex-shrink:0;border:2px solid #ffb6c1
+}
+.cat-avatar img{width:100%;height:100%;object-fit:cover}
+.cat-info{flex:1}
+.cat-name{font-size:15px;font-weight:700;color:#5d3a4a}
+.cat-meta{font-size:11px;color:#c9a0b0;margin-top:3px}
+
+.spinner{
+  width:36px;height:36px;border:4px solid #ffe4e1;
+  border-top-color:#ff8a9e;border-radius:50%;animation:spin 0.7s linear infinite;margin:20px auto
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.toast{
+  position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:300;
+  background:linear-gradient(135deg,#ff8a9e,#ff6b8a);color:#fff;padding:12px 24px;
+  border-radius:20px;font-size:14px;font-weight:700;
+  animation:tin 0.3s,tout 0.3s 1.8s forwards;
+  box-shadow:0 6px 20px rgba(255,107,138,0.3)
+}
+@keyframes tin{from{opacity:0;transform:translateX(-50%) translateY(-16px)}}
+@keyframes tout{to{opacity:0;transform:translateX(-50%) translateY(-16px)}}
+
+.empty{text-align:center;padding:40px 20px;color:#c9a0b0}
+.empty .icon{font-size:56px;margin-bottom:12px}
+
+.row{display:flex;gap:8px}.row .btn{flex:1}
+.audio-row{display:flex;gap:8px;margin:8px 0}.audio-row button{flex:1}
+
+/* Human banner */
+.human-banner{
+  background:linear-gradient(135deg,#ffb6c1,#ff8a9e);border-radius:14px;
+  padding:12px;margin-bottom:10px;text-align:center
+}
+.animal-confirm{text-align:center;font-size:12px;color:#ff8a9e;margin:4px 0 6px;font-weight:600}
+
+/* Wave label */
+.wave-label{
+  display:flex;align-items:center;gap:4px;margin:-2px 0 4px 0;
+  font-size:11px;color:#d4a0b0;justify-content:center;font-weight:600
+}
+
+/* video in modal */
+.modal video{width:100%;height:240px;object-fit:cover;border-radius:16px;background:#000;margin:4px 0}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="header">
+    <h1>🐱 小猫在说什么？</h1>
+    <div class="sub">✨ 听听你的猫咪想告诉你什么 ✨</div>
+  </div>
+
+  <!-- 🎤 录音 -->
+  <div class="panel active" id="panel-record">
+    <div class="card">
+      <h3>🎤 听听小猫的声音</h3>
+      <div class="mic-area">
+        <button class="mic-btn" id="micBtn">🎙️</button>
+        <div class="mic-hint" id="micHint">点一下，开始听小猫说话~</div>
+      </div>
+      <canvas class="wave-canvas" id="waveCanvas" width="360" height="60"></canvas>
+      <div class="wave-label">🔊 声音波纹 — 小猫在叫的时候会动哦</div>
+      <div class="row" id="audioRow" style="display:none;margin:4px 0">
+        <button class="btn-play" id="playBtn">▶️ 再听一遍</button>
+        <button class="btn-play" id="downloadBtn" style="background:linear-gradient(135deg,#ffb6c1,#ff9aa2);color:#fff">📥 保存</button>
+      </div>
+      <div id="resultsArea"></div>
+      <button class="btn btn-small" id="saveBtn" style="display:none">💾 存到我家猫咪</button>
+    </div>
+    <div class="card" style="font-size:13px;color:#c08497;line-height:2">
+      <strong>💕 怎么录最好？</strong><br>
+      🐱 小猫叫的时候，靠近一点录<br>
+      🤫 关掉电视和音乐<br>
+      ⏱️ 录 1-3 秒就够了<br>
+      📊 会告诉你 3 种最可能的情绪
+    </div>
+  </div>
+
+  <!-- 📸 品种 -->
+  <div class="panel" id="panel-breed">
+    <div class="card">
+      <h3>📸 看看小猫是什么品种</h3>
+      <div class="photo-preview" id="photoPreview">
+        <span class="placeholder">🐱</span>
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" onclick="openCamera()">📷 给小猫拍照</button>
+        <button class="btn btn-secondary" onclick="var i=document.getElementById('galleryInput');i.click()">🖼️ 从相册选</button>
+      </div>
+      <input type="file" id="galleryInput" accept="image/*">
+      <button class="btn btn-primary" id="analyzeBtn" disabled>🔍 看看是什么猫</button>
+      <div id="breedResults"></div>
+    </div>
+  </div>
+
+  <!-- 🐱 我的猫 -->
+  <div class="panel" id="panel-cats">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0">
+      <h3 style="margin:0">🐱 我家的猫咪</h3>
+      <button class="btn-small" id="addCatBtn" style="width:auto;margin:0">＋ 添加猫咪</button>
+    </div>
+    <div id="catList"></div>
+  </div>
+
+  <!-- 📖 图鉴 -->
+  <div class="panel" id="panel-guide">
+    <h3 style="margin:12px 0;color:#5d3a4a">📖 猫咪品种小百科</h3>
+    <div class="breed-grid" id="breedGrid"></div>
+    <div class="card" style="margin-top:12px">
+      <h3>🔊 小猫情绪小词典</h3>
+      <div style="font-size:13px;line-height:2.4;color:#c08497">
+        😌 <b>舒服开心</b> — 咕噜咕噜<br>
+        🐱 <b>想和你玩</b> — 短促喵喵<br>
+        🍼 <b>肚子饿了</b> — 着急叫<br>
+        😿 <b>不舒服</b> — 长长哀叫<br>
+        😾 <b>生气了</b> — 嘶嘶哈哈<br>
+        🚨 <b>想要朋友</b> — 大声长叫
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" data-panel="panel-record"><span class="icon">🎤</span>听声音</button>
+    <button class="tab-btn" data-panel="panel-breed"><span class="icon">📸</span>看品种</button>
+    <button class="tab-btn" data-panel="panel-cats"><span class="icon">🐱</span>我的猫</button>
+    <button class="tab-btn" data-panel="panel-guide"><span class="icon">📖</span>小百科</button>
+  </div>
+</div>
+
+<!-- Camera modal -->
+<div class="modal-overlay" id="cameraModal" style="display:none">
+  <div class="modal" style="max-width:340px;padding:16px">
+    <h3 style="text-align:center;margin-bottom:8px">📷 给小猫拍照</h3>
+    <video id="camVideo" autoplay playsinline muted></video>
+    <canvas id="camCanvas" style="display:none"></canvas>
+    <div id="camLoading" style="text-align:center;padding:60px 0;color:#d4a0b0;font-size:14px">
+      <div class="spinner"></div>正在打开相机…
+    </div>
+    <div id="camError" style="font-size:12px;color:#ff6b6b;text-align:center;margin:6px 0;display:none"></div>
+    <div class="row" style="margin-top:8px;align-items:center">
+      <button class="btn btn-secondary" id="camFlipBtn" onclick="flipCamera()" style="flex:none;width:44px;height:44px;border-radius:50%;padding:0;font-size:20px;display:none;margin:0">🔄</button>
+      <button class="btn btn-secondary" onclick="closeCamera()" style="flex:1;margin:0">取消</button>
+      <button class="btn btn-primary" onclick="snapPhoto()" style="flex:1;margin:0">📸 拍！</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+<div class="modal-overlay" id="addCatModal" style="display:none">
+  <div class="modal">
+    <h3>🐱 添加我家猫咪</h3>
+    <input type="text" id="catNameInput" placeholder="给猫咪起个名字~" maxlength="20">
+    <div class="photo-preview" id="catPhotoPreview" style="height:140px;cursor:pointer" onclick="document.getElementById('catPhotoInput').click()">
+      <span class="placeholder">🐱</span>
+    </div>
+    <input type="file" id="catPhotoInput" accept="image/*" capture="environment">
+    <div class="row"><button class="btn btn-secondary" id="cancelAdd">取消</button><button class="btn btn-primary" id="confirmAdd">添加</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="detailModal" style="display:none">
+  <div class="modal" id="detailContent"></div>
+</div>
+
+<script>
+// ============================================================
+//  小猫在说什么 v3 cute · 引擎不变 · UI 超可爱
+//  声学模型: Schötz 2024 (969 喵叫, 50 只猫)
+//  人声检测: F0 70-550Hz + 排除咕噜/嘶嘶
+//  情绪分类: 指数评分 + softmax + 语调 + 谐波
+// ============================================================
+
+var SR=44100, MAX_SEC=5;
+
+// Schötz 2024 校准情绪模型
+var EMOTIONS=[
+  {id:'content',emoji:'😌',name:'好舒服~',desc:'咕噜咕噜，很开心',
+   color:'#7ec8a0',f0Lo:15,f0Hi:60,dLo:1.5,dHi:25,zLo:0.001,zHi:0.05,cLo:20,cHi:200,
+   contour:'flat',harm:true,rep:false,e:'very-low',purr:true},
+  {id:'attention',emoji:'🐱',name:'想和你玩！',desc:'在打招呼，想要摸摸',
+   color:'#f4a460',f0Lo:390,f0Hi:720,dLo:0.3,dHi:1.5,zLo:0.05,zHi:0.22,cLo:300,cHi:1100,
+   contour:'rising',harm:true,rep:false,e:'medium',purr:false},
+  {id:'hungry',emoji:'🍼',name:'肚子饿啦',desc:'想吃东西了！',
+   color:'#ff8c52',f0Lo:490,f0Hi:700,dLo:0.3,dHi:1.2,zLo:0.07,zHi:0.25,cLo:380,cHi:1200,
+   contour:'rising',harm:true,rep:true,e:'medium-high',purr:false},
+  {id:'pain',emoji:'😿',name:'有点不舒服',desc:'可能不开心或紧张',
+   color:'#ff6b6b',f0Lo:440,f0Hi:700,dLo:0.6,dHi:4,zLo:0.03,zHi:0.18,cLo:250,cHi:950,
+   contour:'falling',harm:true,rep:false,e:'high',purr:false},
+  {id:'angry',emoji:'😾',name:'我生气了！',desc:'嘶嘶哈哈，在警告',
+   color:'#ff4757',f0Lo:1200,f0Hi:8000,dLo:0.1,dHi:4,zLo:0.30,zHi:0.70,cLo:1800,cHi:6000,
+   contour:'flat',harm:false,rep:false,e:'medium',purr:false},
+  {id:'mating',emoji:'🚨',name:'想要小伙伴',desc:'在呼唤伙伴呢',
+   color:'#b39dff',f0Lo:250,f0Hi:750,dLo:1.2,dHi:8,zLo:0.02,zHi:0.15,cLo:200,cHi:900,
+   contour:'flat',harm:true,rep:true,e:'high',purr:false}
+];
+
+var CAT_BREEDS=[
+  {name:'中华田园猫',traits:'聪明、适应力棒',vocal:'声音多变'},
+  {name:'暹罗猫',traits:'爱说话、粘人',vocal:'又响又亮'},
+  {name:'波斯猫',traits:'安静温柔',vocal:'轻轻的'},
+  {name:'英短',traits:'沉稳独立',vocal:'温温柔柔'},
+  {name:'布偶猫',traits:'超粘人、脾气好',vocal:'小声小气'},
+  {name:'美短',traits:'活泼好奇',vocal:'不高不低'},
+  {name:'缅因猫',traits:'个头大、脾气好',vocal:'咕噜声很大'},
+  {name:'斯芬克斯猫',traits:'没毛但超亲人',vocal:'爱说话'},
+  {name:'苏格兰折耳',traits:'乖巧安静',vocal:'咕噜为主'},
+  {name:'孟加拉猫',traits:'精力充沛',vocal:'偶尔嚎叫'},
+  {name:'橘猫',traits:'贪吃小可爱',vocal:'讨食叫得多'},
+  {name:'黑猫',traits:'聪明独立',vocal:'中低音'},
+  {name:'奶牛猫',traits:'活泼好动',vocal:'可爱叫声'},
+  {name:'三花猫',traits:'温柔亲人',vocal:'软软叫声'},
+  {name:'俄罗斯蓝猫',traits:'害羞安静',vocal:'很少叫'},
+  {name:'挪威森林猫',traits:'独立酷酷',vocal:'低沉咕噜'},
+  {name:'阿比西尼亚猫',traits:'好奇宝宝',vocal:'咕噜多'},
+  {name:'东方短毛猫',traits:'社交达人',vocal:'响亮'},
+  {name:'土耳其梵猫',traits:'喜欢玩水',vocal:'中等'},
+  {name:'德文卷毛猫',traits:'调皮粘人',vocal:'活泼'}
+];
+
+// Breed photos
+function breedImg(name){
+  var m={
+    '中华田园猫':'Dragon_Li_cat.jpg','暹罗猫':'Siamese_cat_Vaillante.JPG',
+    '波斯猫':'White_Persian_Cat.jpg','英短':'British_Shorthair.jpg',
+    '布偶猫':'Ragdoll_from_Gatil_Ragbelas.jpg','美短':'American_Shorthair.jpg',
+    '缅因猫':'Maine_Coon_cat.jpg','斯芬克斯猫':'Sphynx_cat_in_coat.jpg',
+    '苏格兰折耳':'Scottish_Fold.jpg','孟加拉猫':'Bengal_Cat.jpg',
+    '橘猫':'Orange_tabby_cat.jpg','黑猫':'Black_cat.jpg',
+    '奶牛猫':'Tuxedo_cat.jpg','三花猫':'Calico_cat.jpg',
+    '俄罗斯蓝猫':'Russian_Blue_cat.jpg','挪威森林猫':'Norwegian_forest_cat.jpg',
+    '阿比西尼亚猫':'Abyssinian_cat.jpg','东方短毛猫':'Oriental_Shorthair_cat.jpg',
+    '土耳其梵猫':'Turkish_Van_Cat.jpg','德文卷毛猫':'Devon_Rex_cat.jpg'
+  };
+  var f=m[name];if(!f)return'<span style="font-size:36px">🐱</span>';
+  return'<img src="https://commons.wikimedia.org/wiki/Special:FilePath/'+encodeURIComponent(f)+'?width=200" alt="'+name+'" loading="lazy" onerror="this.parentElement.innerHTML=\'<span style=font-size:36px>🐱</span>\'" style="width:100%;height:100%;object-fit:cover">';
+}
+
+// State
+var audioCtx=null,stream=null,recorder=null,analyser=null;
+var chunks=[],recStart=0,recTimer=null,animId=null,lastBlob=null,lastResult=null;
+var db=null;
+
+function $(id){return document.getElementById(id)}
+
+// Audio
+async function ctx(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:SR});if(audioCtx.state==='suspended')await audioCtx.resume();return audioCtx}
+
+async function startRec(){
+  try{chunks=[]
+  var c=await ctx()
+  stream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate:SR,channelCount:1,echoCancellation:true}})
+  var src=c.createMediaStreamSource(stream);analyser=c.createAnalyser();analyser.fftSize=1024;analyser.smoothingTimeConstant=0.3;src.connect(analyser)
+  recorder=new MediaRecorder(stream,{mimeType:'audio/webm;codecs=opus'})
+  recorder.ondataavailable=function(e){if(e.data.size>0)chunks.push(e.data)}
+  recorder.onstop=analyze;recorder.start(100);recStart=Date.now()
+  $('micBtn').classList.add('recording');$('micBtn').textContent='⏹️';$('micHint').textContent='正在听…再点一下停下'
+  $('resultsArea').innerHTML='';$('saveBtn').style.display='none';$('audioRow').style.display='none'
+  recTimer=setInterval(function(){if((Date.now()-recStart)/1000>=MAX_SEC)stopRec()},150);drawWave();return true
+  }catch(e){$('micHint').textContent='⚠️ 请允许用麦克风哦~';return false}
+}
+
+function stopRec(){
+  if(recorder&&recorder.state==='recording')recorder.stop()
+  if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
+  if(recTimer){clearInterval(recTimer);recTimer=null}
+  if(animId){cancelAnimationFrame(animId);animId=null}
+  $('micBtn').classList.remove('recording');$('micBtn').textContent='🎙️';$('micHint').textContent='正在思考…'
+  clearWave()
+}
+
+function drawWave(){
+  var cvs=$('waveCanvas'),w=cvs.width,h=cvs.height,ctx2=cvs.getContext('2d')
+  function f(){if(!analyser)return
+    var d=new Uint8Array(analyser.fftSize);analyser.getByteTimeDomainData(d)
+    ctx2.clearRect(0,0,w,h);ctx2.beginPath();ctx2.strokeStyle='#ff8a9e';ctx2.lineWidth=3
+    var step=Math.floor(d.length/w)
+    for(var x=0;x<w;x++){var s=0;for(var j=0;j<step;j++)s+=d[Math.min(x*step+j,d.length-1)];var y=(s/step/255)*h;if(x===0)ctx2.moveTo(x,y);else ctx2.lineTo(x,y)}
+    ctx2.stroke();animId=requestAnimationFrame(f)
+  }f()
+}
+function clearWave(){var c=$('waveCanvas'),cx=c.getContext('2d');cx.clearRect(0,0,c.width,c.height)}
+
+// Feature extraction
+function extract(buf){
+  var s=buf.getChannelData(0),n=s.length,sr=buf.sampleRate
+  var rms=0;for(var i=0;i<n;i++)rms+=s[i]*s[i];rms=Math.sqrt(rms/n)
+  var z=0;for(i=1;i<n;i++)if((s[i]>=0&&s[i-1]<0)||(s[i]<0&&s[i-1]>=0))z++;var zcr=z/n
+  var peak=findPeak(s,sr);var centroid=peak*(zcr>0.35?2.2:(zcr>0.15?1.6:1.25))
+  var mid=Math.floor(n/2);var f0a=findPeak(s.subarray(0,mid),sr);var f0b=findPeak(s.subarray(mid),sr)
+  var contour=0;if(f0a>0&&f0b>0)contour=(f0b-f0a)/f0a
+  var loN=Math.floor(sr/140),lo=0;for(i=0;i<n-loN;i++)lo+=s[i]*s[i+loN];var tot=0;for(i=0;i<n;i++)tot+=s[i]*s[i]
+  var loRatio=tot>0?Math.abs(lo)/tot:0
+  return{rms:rms,zcr:zcr,peakFreq:peak,centroid:centroid,loRatio:loRatio,contour:contour,n:n,sr:sr}
+}
+
+function findPeak(arr,sr){
+  var n=arr.length,minLag=Math.max(2,Math.floor(sr/3800)),maxLag=Math.min(n-1,Math.floor(sr/18))
+  var bestL=minLag,bestC=-Infinity
+  for(var lag=minLag;lag<=maxLag;lag++){var c=0;for(var i=0;i<n-lag;i++)c+=arr[i]*arr[i+lag];if(c>bestC){bestC=c;bestL=lag}}
+  return bestC>0?sr/bestL:0
+}
+
+// Schötz-calibrated classify (exponential + softmax)
+function classify(f,dur){
+  var results=EMOTIONS.map(function(e){
+    var sc=0,w=0;
+    var fmid=(e.f0Lo+e.f0Hi)/2,fh=(e.f0Hi-e.f0Lo)/2;sc+=4.0*Math.pow(0.45,Math.abs(f.peakFreq-fmid)/Math.max(fh,1));w+=4.0
+    var dmid=(e.dLo+e.dHi)/2,dh=(e.dHi-e.dLo)/2+0.01;sc+=3.5*Math.pow(0.35,Math.abs(dur-dmid)/dh);w+=3.5
+    var zmid=(e.zLo+e.zHi)/2,zh=(e.zHi-e.zLo)/2+0.001;sc+=4.0*Math.pow(0.30,Math.abs(f.zcr-zmid)/zh);w+=4.0
+    var cmid=(e.cLo+e.cHi)/2,ch=(e.cHi-e.cLo)/2;sc+=1.5*Math.pow(0.5,Math.abs(f.centroid-cmid)/Math.max(ch,1));w+=1.5
+    var ev={'very-low':[0,0.03],'low':[0.01,0.06],'medium':[0.03,0.15],'medium-high':[0.08,0.3],'high':[0.15,0.6]}[e.e]||[0.02,0.2]
+    var emid=(ev[0]+ev[1])/2,eh=(ev[1]-ev[0])/2+0.01;sc+=1.5*Math.pow(0.5,Math.abs(f.rms-emid)/eh);w+=1.5
+    if(e.harm){if(f.zcr<0.16)sc+=4.0;else if(f.zcr<0.26)sc+=2.0;else if(f.zcr<0.35)sc+=0.5;else sc-=2.5}
+    else{if(f.zcr>0.38)sc+=4.0;else if(f.zcr>0.28)sc+=2.0;else sc-=3.5}w+=4.0
+    if(e.contour==='rising'&&f.contour>0.07)sc+=5.0;else if(e.contour==='rising'&&f.contour>0.03)sc+=2.5
+    else if(e.contour==='falling'&&f.contour<-0.07)sc+=5.0;else if(e.contour==='falling'&&f.contour<-0.03)sc+=2.5
+    else if(e.contour==='flat'&&Math.abs(f.contour)<=0.03)sc+=5.0;else if(Math.abs(f.contour)<=0.06)sc+=2.0;else sc-=2.0;w+=5.0
+    if(e.purr){sc+=3.5*f.loRatio;w+=3.5}if(e.rep&&dur<0.7)sc+=2.0;w+=2.0
+    return{eid:e.id,emoji:e.emoji,name:e.name,desc:e.desc,color:e.color,rawScore:Math.max(0,w>0?sc/w:0)};
+  });
+  results.sort(function(a,b){return b.rawScore-a.rawScore});
+  var top3=results.slice(0,3),totalExp=0;
+  top3.forEach(function(r){totalExp+=Math.exp(r.rawScore*4)});
+  if(totalExp<0.001)totalExp=3;
+  return top3.map(function(r){return{eid:r.eid,emoji:r.emoji,name:r.name,desc:r.desc,color:r.color,probability:Math.min(95,Math.max(2,Math.round(Math.exp(r.rawScore*4)/totalExp*100)))}});
+}
+
+// Human detection
+function detectHuman(audioBuf,f,dur){
+  var s=audioBuf.getChannelData(0),n=s.length,sr=audioBuf.sampleRate,score=0,ind=[],det={};
+  det.peakHz=Math.round(f.peakFreq);det.zcrPct=Math.round(f.zcr*100);
+  var f0h=findHumanF0(s,sr);det.f0Human=Math.round(f0h);
+  if(f0h>=70&&f0h<=500&&f.peakFreq>=70&&f.peakFreq<=550){score+=4;if(f0h<250)ind.push('基频'+det.f0Human+'Hz（男生音高）');else if(f0h<400)ind.push('基频'+det.f0Human+'Hz（女生音高）');else ind.push('基频'+det.f0Human+'Hz（高音区）')}
+  else if(f0h>=500&&f0h<=800){score+=2;ind.push('基频'+det.f0Human+'Hz 很高，像人在学猫叫')}
+  if(f.peakFreq<60&&f.loRatio>0.4&&dur>1.5){score-=4;ind.push('这是小猫咕噜声~不是人声')}
+  if(f.zcr>0.30&&f.peakFreq>1500){score-=4;ind.push('这是嘶嘶声~小猫在生气')}
+  if(f.zcr>0.04&&f.zcr<0.18&&f0h>80&&f0h<450){score+=1;ind.push('ZCR在人类语音范围内')}
+  if(f.zcr<0.18&&f0h>70){score+=1;ind.push('声音很有规律，像人说话')}
+  if(dur<2.5&&f0h>70&&f0h<500)score+=0.5;
+  var isHuman=(score>=4&&f.peakFreq>60&&f.peakFreq<600);
+  return{isHuman:isHuman,confidence:Math.min(95,Math.max(5,Math.round((score+3)/10*100))),score:score,indicators:ind.slice(0,4),details:det};
+}
+
+function findHumanF0(samples,sr){
+  var n=samples.length,minLag=Math.max(2,Math.floor(sr/550)),maxLag=Math.min(n-1,Math.floor(sr/70));if(maxLag<=minLag)return 0;
+  var step=Math.max(1,Math.floor(n/3000)),ds=[];for(var i=0;i<n;i+=step)ds.push(samples[i]);
+  var dsN=ds.length,dsMin=Math.max(1,Math.floor(minLag/step)),dsMax=Math.min(dsN-1,Math.floor(maxLag/step));
+  var bestL=dsMin,bestC=-Infinity;
+  for(var lag=dsMin;lag<=dsMax;lag++){var c=0;for(var i=0;i<dsN-lag;i++)c+=ds[i]*ds[i+lag];var norm=0;for(i=0;i<dsN;i++)norm+=ds[i]*ds[i];if(norm>0)c=c/(norm/dsN);if(c>bestC){bestC=c;bestL=lag}}
+  if(bestC<0.02)return 0;return Math.round(sr/(bestL*step));
+}
+
+// Analyze
+async function analyze(){
+  if(chunks.length===0){$('micHint').textContent='没录到声音哦~再试一次';return}
+  try{
+    var blob=new Blob(chunks,{type:'audio/webm'});lastBlob=blob;var url=URL.createObjectURL(blob)
+    var player=document.createElement('audio');player.src=url
+    $('audioRow').style.display='flex';$('playBtn').onclick=function(){player.play()}
+    $('downloadBtn').onclick=function(){var a=document.createElement('a');a.href=url;a.download='小猫声音_'+Date.now()+'.webm';a.click()}
+    var buf=await blob.arrayBuffer();var c=await ctx();var audioBuf=await c.decodeAudioData(buf)
+    var dur=audioBuf.duration;var f=extract(audioBuf);var human=detectHuman(audioBuf,f,dur)
+    var results=classify(f,dur)
+    lastResult={features:f,results:results,timestamp:Date.now(),duration:dur,human:human}
+    showResults(results,human,f)
+    $('micHint').textContent='点一下，开始听小猫说话~';$('saveBtn').style.display='inline-block'
+  }catch(e){console.error(e);$('micHint').textContent='分析失败啦，再试一次~'}
+}
+
+function showResults(results,humanCheck,rawFeatures){
+  var area=$('resultsArea'),isHuman=humanCheck&&humanCheck.isHuman;
+  var humanBanner='';
+  if(isHuman){
+    var inds=humanCheck.indicators||[];
+    humanBanner='<div class="human-banner"><div style="font-size:14px;font-weight:700;color:#fff">🗣️ 这是人类在学小猫叫哦~</div>'+
+      '<div style="font-size:11px;color:rgba(255,255,255,0.85);margin-top:4px;line-height:1.5">'+
+      (inds.length>0?inds.map(function(x){return '· '+x}).join('<br>'):'声音像人类在说话')+(humanCheck.confidence?'<br>人声可能性 '+humanCheck.confidence+'%':'')+'</div></div>';
+  }else if(humanCheck){humanBanner='<div class="animal-confirm">✅ 这是小猫咪的声音哦~</div>';}
+
+  area.innerHTML='<div style="margin-top:8px;font-size:14px;color:#d4a0b0;font-weight:700;text-align:center">📊 小猫想要告诉你…</div>'+
+    humanBanner+(isHuman?'<div style="font-size:12px;color:#d4a0b0;margin:4px 0 8px;text-align:center">👇 这声音最像小猫的…</div>':'')+
+    results.map(function(r){return'<div class="result-item"><div class="result-emoji">'+r.emoji+'</div>'+
+      '<div class="result-info"><div class="result-name">'+r.name+'</div><div class="result-desc">'+r.desc+'</div>'+
+      '<div class="result-bar-bg"><div class="result-bar-fg" style="width:'+r.probability+'%;background:'+r.color+'"></div></div></div>'+
+      '<div class="result-pct" style="color:'+r.color+'">'+r.probability+'%</div></div>'}).join('');
+
+  if(rawFeatures){var diagDur=Math.round(rawFeatures.n/rawFeatures.sr*1000);var contourSign=rawFeatures.contour>0.04?'↑':rawFeatures.contour<-0.04?'↓':'→';
+    area.innerHTML+='<div style="margin-top:6px;font-size:10px;color:#d4a0b0;text-align:center">🔬 音高:'+Math.round(rawFeatures.peakFreq)+'Hz · 时长:'+diagDur+'ms · 语调:'+contourSign+'</div>';}
+  setTimeout(function(){area.querySelectorAll('.result-bar-fg').forEach(function(b){var w=b.style.width;b.style.width='0%';requestAnimationFrame(function(){b.style.width=w})})},50);
+}
+
+// Breed (TF.js)
+var tfReady=false,mNet=null;
+function loadTF(cb){if(tfReady){cb();return}
+  var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js'
+  s.onload=function(){tfReady=true;cb()};s.onerror=function(){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">网络连接失败，下载不了模型</div>'};document.head.appendChild(s)}
+function loadModel(cb){if(mNet){cb(mNet);return}
+  $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在学习识别猫咪品种…</div>'
+  tf.loadGraphModel('model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(){
+    $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">下载识别模型(~5MB)</div>'
+    tf.loadGraphModel('https://www.kaggle.com/api/v1/models/google/mobilenet-v2/tensorFlow2/140-224-classification/3/download').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">下载失败，检查网络再试试~</div>';console.error(e)})})}
+
+function analyzeBreed(){
+  var img=$('photoPreview').querySelector('img');if(!img)return
+  $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在识别…</div>'
+  loadTF(function(){loadModel(function(model){
+    var t=tf.tidy(function(){return tf.browser.fromPixels(img).resizeBilinear([224,224]).expandDims(0).toFloat().div(127.5).sub(1)})
+    model.predict(t).data().then(function(preds){t.dispose()
+      var items=[];for(var i=0;i<preds.length;i++)items.push({idx:i,prob:preds[i]});items.sort(function(a,b){return b.prob-a.prob})
+      var catIds={281:1,282:1,283:1,284:1,285:1,286:1,287:1,288:1,289:1,290:1,291:1}
+      var catLabels={281:'虎斑猫/橘猫',282:'虎猫',283:'波斯猫',284:'暹罗猫',285:'埃及猫',286:'美洲狮',287:'猞猁',288:'狮子',289:'猎豹',290:'雪豹',291:'缅因猫'}
+      var top10=items.slice(0,10);var isCat=top10.some(function(x){return catIds[x.idx]})
+      var matches=top10.filter(function(x){return catIds[x.idx]}).map(function(x){return{name:catLabels[x.idx]||'猫',prob:Math.round(x.prob*100)}})
+      if(!isCat||(matches.length===0&&top10[0].prob>0.20)){$('breedResults').innerHTML='<div style="text-align:center;padding:14px"><div style="font-size:40px;margin-bottom:6px">🤔</div><div style="font-size:15px;font-weight:700;color:#ff8c52">这不是小猫咪的照片哦~</div><div style="font-size:12px;color:#d4a0b0;margin-top:4px">请给小猫拍张照吧！</div></div>';return}
+      var top=matches.slice(0,3);var tot=top.reduce(function(s,r){return s+r.prob},0);if(tot===0)tot=3;top.forEach(function(r){r.probability=Math.round(r.prob/tot*100)})
+      $('breedResults').innerHTML='<div style="margin-top:8px;font-size:13px;color:#d4a0b0;font-weight:700;text-align:center">📸 这只小猫是…</div>'+
+        top.map(function(r){var db=CAT_BREEDS.find(function(b){return r.name.indexOf(b.name)>=0||(b.name&&r.name.indexOf(b.name.substring(0,2))>=0)})
+        return'<div class="result-item"><div style="min-width:52px;height:52px;border-radius:12px;overflow:hidden;flex-shrink:0;background:#ffe4e1">'+breedImg(db?db.name:'猫')+'</div>'+
+        '<div class="result-info"><div class="result-name">'+(db?db.name:r.name)+'</div><div class="result-desc">'+(db?'性格:'+db.traits+' | 声音:'+db.vocal:'小百科里还没有这个品种')+'</div>'+
+        '<div class="result-bar-bg"><div class="result-bar-fg" style="width:'+r.probability+'%;background:#ff8a9e"></div></div></div><div class="result-pct" style="color:#ff6b8a">'+r.probability+'%</div></div>'}).join('')})})})}
+
+// Camera
+var _camStream=null;
+function openCamera(){var vid=$('camVideo'),modal=$('cameraModal'),loading=$('camLoading'),errDiv=$('camError'),flipBtn=$('camFlipBtn');errDiv.style.display='none';vid.style.display='none';loading.style.display='block';flipBtn.style.display='none';modal.style.display='flex';if(_camStream){_camStream.getTracks().forEach(function(t){t.stop()});_camStream=null}vid.srcObject=null;if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){errDiv.style.display='block';errDiv.textContent='设备不支持相机';loading.style.display='none';return}startCam(vid,loading,errDiv,flipBtn)}
+var _camFacing='user';
+function startCam(vid,loading,errDiv,flipBtn){navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:{ideal:_camFacing}}}).then(function(stream){_camStream=stream;vid.srcObject=stream;vid.onloadedmetadata=function(){vid.play();vid.style.display='block';loading.style.display='none';flipBtn.style.display='inline-flex'}}).catch(function(){navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480}}}).then(function(stream){_camStream=stream;vid.srcObject=stream;vid.onloadedmetadata=function(){vid.play();vid.style.display='block';loading.style.display='none';flipBtn.style.display='inline-flex'}}).catch(function(){loading.style.display='none';errDiv.style.display='block';errDiv.textContent='打不开相机，请允许相机权限';flipBtn.style.display='none';$('cameraModal').style.display='none'})})}
+function flipCamera(){_camFacing=(_camFacing==='environment')?'user':'environment';var vid=$('camVideo'),loading=$('camLoading'),errDiv=$('camError'),flipBtn=$('camFlipBtn');if(_camStream){_camStream.getTracks().forEach(function(t){t.stop()});_camStream=null}vid.srcObject=null;vid.style.display='none';loading.style.display='block';errDiv.style.display='none';startCam(vid,loading,errDiv,flipBtn)}
+function closeCamera(){if(_camStream){_camStream.getTracks().forEach(function(t){t.stop()});_camStream=null}var vid=$('camVideo');vid.srcObject=null;vid.style.display='none';$('cameraModal').style.display='none'}
+function snapPhoto(){var vid=$('camVideo'),canvas=$('camCanvas');if(!vid.videoWidth){$('camError').style.display='block';$('camError').textContent='相机还没准备好~等一下再拍';return}canvas.width=vid.videoWidth;canvas.height=vid.videoHeight;canvas.getContext('2d').drawImage(vid,0,0,canvas.width,canvas.height);var dataUrl=canvas.toDataURL('image/jpeg',0.85);$('photoPreview').innerHTML='<img src="'+dataUrl+'">';$('analyzeBtn').disabled=false;closeCamera()}
+
+// IndexedDB
+function openDB(cb){var r=indexedDB.open('CuteCatDB',1);r.onupgradeneeded=function(e){if(!e.target.result.objectStoreNames.contains('cats'))e.target.result.createObjectStore('cats',{keyPath:'id',autoIncrement:true})};r.onsuccess=function(e){db=e.target.result;cb()};r.onerror=function(){cb()}}
+function getCats(cb){if(!db){cb([]);return}var t=db.transaction('cats','readonly'),s=t.objectStore('cats'),r=s.getAll();r.onsuccess=function(){cb(r.result||[])};r.onerror=function(){cb([])}}
+function addCat(cat,cb){if(!db){cb(null);return}var t=db.transaction('cats','readwrite'),s=t.objectStore('cats'),r=s.add(cat);r.onsuccess=function(){cb(r.result)};r.onerror=function(){cb(null)}}
+function updateCat(id,data,cb){if(!db){cb(false);return}var t=db.transaction('cats','readwrite'),s=t.objectStore('cats'),g=s.get(id);g.onsuccess=function(){var c=g.result;if(!c){cb(false);return}Object.assign(c,data);s.put(c).onsuccess=function(){cb(true)}};g.onerror=function(){cb(false)}}
+function deleteCat(id,cb){if(!db){cb(false);return}var t=db.transaction('cats','readwrite'),s=t.objectStore('cats');s.delete(id).onsuccess=function(){cb(true)}}
+
+// UI
+function toast(msg){var t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(function(){t.remove()},2100)}
+function renderCats(){getCats(function(cs){var l=$('catList');if(cs.length===0){l.innerHTML='<div class="empty"><div class="icon">🐱</div><div style="font-size:14px">还没有添加猫咪哦~</div><div style="font-size:11px;margin-top:4px">点上面的按钮添加你家的猫咪吧！</div></div>';return}
+  l.innerHTML=cs.map(function(c){var recs=c.recordings||[];return'<div class="cat-card" onclick="viewCat('+c.id+')"><div class="cat-avatar">'+(c.photo?'<img src="'+c.photo+'">':'🐱')+'</div><div class="cat-info"><div class="cat-name">'+(c.name||'小可爱')+'</div><div class="cat-meta">'+(c.breed||'神秘猫咪')+' · 录过'+recs.length+'次声音</div></div><button class="btn-small" style="background:#ff4757;color:#fff;font-size:10px;padding:6px 10px" onclick="event.stopPropagation();rmCat('+c.id+')">🗑</button></div>'}).join('')})}
+function viewCat(id){getCats(function(cs){var c=cs.find(function(x){return x.id===id});if(!c)return;var recs=c.recordings||[];$('detailContent').innerHTML='<div style="text-align:center"><div style="width:88px;height:88px;border-radius:50%;overflow:hidden;margin:0 auto 10px;background:#ffe4e1;display:flex;align-items:center;justify-content:center;border:3px solid #ffb6c1">'+(c.photo?'<img src="'+c.photo+'" style="width:100%;height:100%;object-fit:cover">':'<span style="font-size:40px">🐱</span>')+'</div><h3 style="color:#5d3a4a">'+(c.name||'小可爱')+'</h3><div style="font-size:13px;color:#d4a0b0">品种：'+(c.breed||'神秘猫咪')+' | 录音：'+recs.length+'次</div>'+(recs.length>0?'<div style="margin-top:8px;text-align:left;font-size:12px;color:#c08497">'+recs.slice(-3).reverse().map(function(r){return'<div style="padding:4px 0;border-bottom:1px solid rgba(255,182,193,0.2)">'+(new Date(r.t)).toLocaleString('zh-CN')+': '+(r.e||[]).slice(0,2).map(function(e){return e.n+e.p+'%'}).join(', ')+'</div>'}).join('')+'</div>':'')+'</div>';$('detailModal').style.display='flex'})}
+function rmCat(id){if(!confirm('确定要删除吗？'))return;deleteCat(id,function(){renderCats()})}
+function saveToCat(){if(!lastResult){toast('请先录一段声音~');return}getCats(function(cs){if(cs.length===0){toast('请先在「我的猫」里加一只猫咪~');return}var h='<h3 style="color:#5d3a4a">💾 存到谁那里？</h3>';cs.forEach(function(c){h+='<div class="cat-card" onclick="doSave('+c.id+')" style="cursor:pointer"><div class="cat-avatar">'+(c.photo?'<img src="'+c.photo+'">':'🐱')+'</div><div class="cat-info"><div class="cat-name">'+c.name+'</div></div></div>'});$('detailContent').innerHTML=h;$('detailModal').style.display='flex'})}
+function doSave(cid){var rec={t:lastResult.timestamp,d:Math.round(lastResult.duration*1000),e:lastResult.results.slice(0,3).map(function(r){return{n:r.name,p:r.probability}})};getCats(function(cs){var c=cs.find(function(x){return x.id===cid});if(!c)return;var recs=c.recordings||[];recs.push(rec);if(recs.length>50)recs.shift();updateCat(cid,{recordings:recs},function(){$('detailModal').style.display='none';toast('✅ 存好啦！')})})}
+function renderBreedGrid(){$('breedGrid').innerHTML=CAT_BREEDS.map(function(b){return'<div class="breed-chip" onclick="showBreed(\''+b.name+'\')">'+breedImg(b.name)+'<div class="label">'+b.name+'</div></div>'}).join('')}
+function showBreed(n){var b=CAT_BREEDS.find(function(x){return x.name===n});if(!b)return;$('detailContent').innerHTML='<div style="text-align:center"><div style="width:100%;height:160px;border-radius:16px;overflow:hidden;margin-bottom:10px;background:#ffe4e1;display:flex;align-items:center;justify-content:center">'+breedImg(b.name)+'</div><h3 style="color:#5d3a4a">'+b.name+'</h3><div style="font-size:14px;color:#d4a0b0;margin:6px 0">性格：'+b.traits+'</div><div style="font-size:14px;color:#d4a0b0">声音：'+b.vocal+'</div></div>';$('detailModal').style.display='flex'}
+
+// Events
+$('micBtn').onclick=function(){if(this.classList.contains('recording'))stopRec();else startRec()}
+document.querySelectorAll('.tab-btn').forEach(function(b){b.onclick=function(){document.querySelectorAll('.tab-btn').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active')});this.classList.add('active');$(this.dataset.panel).classList.add('active');if(this.dataset.panel==='panel-cats')renderCats();if(this.dataset.panel==='panel-guide')renderBreedGrid()}})
+$('galleryInput').onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){$('photoPreview').innerHTML='<img src="'+ev.target.result+'">';$('analyzeBtn').disabled=false};r.readAsDataURL(f)}
+$('analyzeBtn').onclick=analyzeBreed
+$('saveBtn').onclick=saveToCat
+$('addCatBtn').onclick=function(){var catPhotoData=null;$('catPhotoPv').innerHTML='<span class="placeholder">🐱</span>';$('catName').value='';$('addCatModal').style.display='flex'}
+$('cancelAdd').onclick=function(){$('addCatModal').style.display='none'}
+$('confirmAdd').onclick=function(){var n=$('catNameInput').value.trim();if(!n){toast('给猫咪起个名字吧~');return};var d=window._catPhotoData||null;addCat({name:n,photo:d,breed:'',recordings:[],createdAt:Date.now()},function(){$('addCatModal').style.display='none';toast('✅ '+n+' 添加成功！');renderCats()})}
+$('catPhotoInput').onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){var img=new Image();img.onload=function(){var cvs=document.createElement('canvas'),mx=300,w=img.width,h=img.height;if(w>h){h=Math.round(h*mx/w);w=mx}else{w=Math.round(w*mx/h);h=mx}cvs.width=w;cvs.height=h;cvs.getContext('2d').drawImage(img,0,0,w,h);window._catPhotoData=cvs.toDataURL('image/jpeg',0.7);$('catPhotoPreview').innerHTML='<img src="'+window._catPhotoData+'">'};img.src=ev.target.result};r.readAsDataURL(f)}
+$('addCatModal').onclick=function(e){if(e.target===this)this.style.display='none'}
+$('detailModal').onclick=function(e){if(e.target===this)this.style.display='none'}
+openDB(function(){})
+renderBreedGrid()
+</script>
+</body>
+</html>
