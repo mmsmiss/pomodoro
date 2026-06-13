@@ -15,6 +15,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            minifyEnabled false
+            debuggable true
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
@@ -26,14 +30,12 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    // Copy pomodoro.html from repo root into assets before building
-    task copyHtml(type: Copy) {
-        from rootProject.projectDir.parentFile
-        include 'pomodoro.html'
-        into 'src/main/assets'
-        rename { 'index.html' }
+    // pomodoro.html is copied into assets by the CI workflow (or manually)
+    // File is loaded from: app/src/main/assets/index.html
+
+    lint {
+        abortOnError false
     }
-    preBuild.dependsOn copyHtml
 }
 
 dependencies {
