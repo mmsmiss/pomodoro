@@ -5,7 +5,7 @@ on:
     branches: [master, main]
     paths:
       - 'cat-translator-apk/**'
-      - 'cat-translator.html'
+      - 'cat-translator-v2.html'
       - '.github/workflows/build-cat-apk.yml'
   workflow_dispatch:
 
@@ -58,9 +58,9 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-cat-${{ runner.os }}-v1-${{ hashFiles('cat-translator-apk/**/*.gradle*') }}
+          key: gradle-cat-v3-${{ runner.os }}-${{ hashFiles('cat-translator-apk/**/*.gradle*') }}
           restore-keys: |
-            gradle-cat-${{ runner.os }}-v1-
+            gradle-cat-v3-${{ runner.os }}-
 
       - name: Download Gradle 8.4
         run: |
@@ -69,26 +69,24 @@ jobs:
           unzip -q gradle-8.4-bin.zip
           echo "/tmp/gradle-8.4/bin" >> $GITHUB_PATH
 
-      - name: Download MobileNet TF.js model (offline recognition)
+      - name: Download MobileNet model (offline recognition)
         run: |
           mkdir -p cat-translator-apk/app/src/main/assets/model
           cd cat-translator-apk/app/src/main/assets/model
-          # Download model.json and shards from Google Storage
           BASE="https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3"
           curl -sSLO "$BASE/model.json"
-          # Parse shard file list from model.json and download each
-          grep -oP '"group\K[^"]+\.bin"' model.json > /dev/null || true
-          for F in group1-shard1of2.bin group1-shard2of2.bin; do
-            curl -sSLO "$BASE/$F"
-          done
+          curl -sSLO "$BASE/group1-shard1of2.bin"
+          curl -sSLO "$BASE/group1-shard2of2.bin"
           echo "=== Model files ==="
           ls -la
           du -sh .
 
-      - name: Copy cat-translator.html into assets
+      - name: Copy HTML + model into assets
         run: |
           mkdir -p cat-translator-apk/app/src/main/assets
           cp cat-translator-v2.html cat-translator-apk/app/src/main/assets/index.html
+          echo "=== Assets ==="
+          ls -la cat-translator-apk/app/src/main/assets/
 
       - name: Build debug APK
         working-directory: cat-translator-apk
@@ -96,7 +94,7 @@ jobs:
           ANDROID_HOME: /home/runner/android-sdk
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          gradle assembleDebug
+          gradle assembleDebug --stacktrace 2>&1
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
