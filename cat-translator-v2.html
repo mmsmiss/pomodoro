@@ -1044,7 +1044,6 @@ document.getElementById('galleryInput').onchange=function(e){handlePhoto(e.targe
 
 // ── Camera functions ─────────────────────────────
 var _camStream = null;
-var _camFacing = 'environment';  // default: back camera
 
 function openCamera(){
   var vid = document.getElementById('camVideo');
@@ -1077,8 +1076,11 @@ function openCamera(){
   startCameraStream(vid, loading, errDiv, flipBtn);
 }
 
+var _camFacing = 'user';  // start with front camera (most common default)
+
 function startCameraStream(vid, loading, errDiv, flipBtn){
-  var constraints = {video:{width:640,height:480,facingMode:_camFacing}};
+  // Try the requested facingMode first, fallback to any camera
+  var constraints = {video:{width:{ideal:640},height:{ideal:480},facingMode:{ideal:_camFacing}}};
 
   navigator.mediaDevices.getUserMedia(constraints).then(function(stream){
     _camStream = stream;
@@ -1087,44 +1089,34 @@ function startCameraStream(vid, loading, errDiv, flipBtn){
       vid.play();
       vid.style.display = 'block';
       loading.style.display = 'none';
-      // Show flip button if device has multiple cameras
-      if (navigator.mediaDevices.enumerateDevices) {
-        flipBtn.style.display = 'inline-flex';
-      }
+      flipBtn.style.display = 'inline-flex';
     };
-  }).catch(function(e){
-    // Try without specific facingMode
-    if (_camFacing !== 'user') {
-      _camFacing = 'user';
-      navigator.mediaDevices.getUserMedia({video:true}).then(function(stream){
-        _camStream = stream;
-        vid.srcObject = stream;
-        vid.onloadedmetadata = function(){
-          vid.play();
-          vid.style.display = 'block';
-          loading.style.display = 'none';
-          flipBtn.style.display = 'inline-flex';
-        };
-      }).catch(function(e2){
+  }).catch(function(){
+    // Requested facingMode failed, try without any preference
+    navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480}}}).then(function(stream){
+      _camStream = stream;
+      vid.srcObject = stream;
+      vid.onloadedmetadata = function(){
+        vid.play();
+        vid.style.display = 'block';
         loading.style.display = 'none';
-        errDiv.style.display = 'block';
-        errDiv.textContent = '无法打开摄像头，请确认已授权相机权限';
-        flipBtn.style.display = 'none';
-        // Fallback to gallery on mobile
-        document.getElementById('galleryInput').click();
-        closeCamera();
-      });
-    } else {
+        // Show flip button anyway — device may still have multiple cameras
+        flipBtn.style.display = 'inline-flex';
+      };
+    }).catch(function(){
       loading.style.display = 'none';
       errDiv.style.display = 'block';
-      errDiv.textContent = '无法打开摄像头，请使用相册上传';
+      errDiv.textContent = '无法打开摄像头，请确认已授权相机权限，或使用相册上传';
       flipBtn.style.display = 'none';
-    }
+      document.getElementById('cameraModal').style.display = 'none';
+    });
   });
 }
 
 function flipCamera(){
+  // Toggle facing direction
   _camFacing = (_camFacing === 'environment') ? 'user' : 'environment';
+
   var vid = document.getElementById('camVideo');
   var loading = document.getElementById('camLoading');
   var errDiv = document.getElementById('camError');
@@ -1138,7 +1130,9 @@ function flipCamera(){
   vid.srcObject = null;
   vid.style.display = 'none';
   loading.style.display = 'block';
+  errDiv.style.display = 'none';
 
+  // Restart with new facing direction
   startCameraStream(vid, loading, errDiv, flipBtn);
 }
 
