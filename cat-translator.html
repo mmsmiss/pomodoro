@@ -600,7 +600,9 @@ async function analyzeRecording() {
     const duration = audioBuffer.duration;
 
     // ── 前置检测：是不是猫咪叫声 ──
+    features._debugScore = 0;  // will be set by checkCatMeow
     const meowCheck = checkCatMeow(features, duration);
+    features._debugScore = meowCheck.score;
     if (!meowCheck.isMeow) {
       showNotMeow(meowCheck.reasons, features, duration);
       lastResult = null;
@@ -696,64 +698,73 @@ function checkCatMeow(features, duration) {
   const reasons = [];
   let score = 0;
 
-  // 1. 时长检查：猫叫声 0.15~5 秒（排除关门声、拍手等脉冲噪音，排除持续噪音）
-  if (duration < 0.15) {
-    reasons.push('声音太短（' + duration.toFixed(2) + '秒），不像猫叫声');
-  } else if (duration > 6) {
-    reasons.push('声音太长（' + duration.toFixed(1) + '秒），猫叫通常不超过5秒');
-  } else if (duration >= 0.2 && duration <= 4.5) {
-    score += 2;  // 最佳时长区间
+  // 1. 时长检查：猫叫声 0.12~8 秒
+  if (duration < 0.08) {
+    reasons.push('声音太短（' + (duration*1000).toFixed(0) + 'ms），不像猫叫声');
+  } else if (duration > 8) {
+    reasons.push('声音太长（' + duration.toFixed(1) + '秒），猫叫通常不超过8秒');
+  } else if (duration >= 0.15 && duration <= 5) {
+    score += 2.5;
   } else {
-    score += 1;  // 边缘时长
+    score += 1.5;
   }
 
-  // 2. 音量检查：至少要有一定能量
-  if (features.rms < 0.008) {
+  // 2. 音量检查
+  if (features.rms < 0.003) {
     reasons.push('音量太低，几乎听不到声音');
-  } else if (features.rms >= 0.01) {
-    score += 1.5;
-  }
-
-  // 3. 主频检查：猫叫声通常 300~2000Hz
-  if (features.peakFreq < 200) {
-    reasons.push('主频过低（' + Math.round(features.peakFreq) + 'Hz），可能是环境低频噪音');
-  } else if (features.peakFreq > 5000) {
-    reasons.push('主频过高（' + Math.round(features.peakFreq) + 'Hz），不像猫叫声');
-  } else if (features.peakFreq >= 300 && features.peakFreq <= 2000) {
-    score += 3;
-  } else if (features.peakFreq >= 200 && features.peakFreq <= 3000) {
+  } else if (features.rms >= 0.005) {
     score += 1.5;
   } else {
-    score += 0.5;
+    score += 0.5;  // 低音量不惩罚
   }
 
-  // 4. 过零率检查：谐波声音 ZCR 适中，纯噪声 ZCR 很高
-  if (features.zcr > 0.55) {
-    reasons.push('像是纯噪声（嘶嘶声/风声/空调），缺乏猫叫的谐波结构');
-  } else if (features.zcr < 0.02 && duration > 1) {
-    reasons.push('像是持续低频嗡嗡声（冰箱/汽车引擎），不是猫叫');
-  } else if (features.zcr >= 0.03 && features.zcr <= 0.40) {
+  // 3. 主频检查：放宽范围到 150~6000Hz
+  if (features.peakFreq < 120) {
+    reasons.push('主频过低（' + Math.round(features.peakFreq) + 'Hz），可能是环境低频噪音');
+  } else if (features.peakFreq > 8000) {
+    reasons.push('主频过高（' + Math.round(features.peakFreq) + 'Hz），不像动物叫声');
+  } else if (features.peakFreq >= 250 && features.peakFreq <= 2500) {
+    score += 3;
+  } else if (features.peakFreq >= 150 && features.peakFreq <= 4500) {
     score += 2;
   } else {
-    score += 0.5;
-  }
-
-  // 5. 谐波检查：猫叫声有谐波，谱质心不应该太高
-  if (features.centroid > 4000) {
-    reasons.push('频谱太分散，缺乏猫叫声应有的集中谐波');
-  } else if (features.centroid <= 3500) {
-    score += 1.5;
-  }
-
-  // 6. 低频能量检查：猫叫不是纯咕噜声（那单独处理），非咕噜猫叫低频能量不应太高
-  if (features.lowFreqRatio > 0.7 && features.peakFreq < 100 && duration > 1.5) {
-    // 这其实是咕噜声，也算猫的声音
     score += 1;
-  } else if (features.lowFreqRatio < 0.85) {
+  }
+
+  // 4. 过零率检查：更宽容
+  if (features.zcr > 0.65) {
+    // 非常高的 ZCR 是噪声
+    reasons.push('像是纯噪声，缺乏动物叫声的谐波结构');
+  } else if (features.zcr < 0.015 && duration > 1.5) {
+    reasons.push('像是持续低频嗡嗡声，不是猫叫');
+  } else if (features.zcr >= 0.02 && features.zcr <= 0.50) {
+    score += 2;
+  } else {
+    score += 0.8;
+  }
+
+  // 5. 谐波检查
+  if (features.centroid > 6000) {
+    reasons.push('频谱过于分散，不像动物叫声');
+  } else if (features.centroid <= 4500) {
+    score += 1.5;
+  } else {
+    score += 0.5;  // borderline，给一些分数
+  }
+
+  // 6. 低频能量
+  if (features.lowFreqRatio > 0.6 && features.peakFreq < 120 && duration > 1.2) {
+    score += 1.5;  // 咕噜声也算猫叫
+  } else if (features.lowFreqRatio < 0.9) {
     score += 0.5;
   }
 
-  const isMeow = reasons.length === 0 && score >= 4;
+  // 7. 奖励：声音有谐波结构（峰频和质心相近）
+  if (Math.abs(features.peakFreq - features.centroid) < 1500 && features.zcr < 0.5) {
+    score += 1;
+  }
+
+  const isMeow = reasons.length === 0 && score >= 3;
 
   return {
     isMeow,
@@ -772,6 +783,13 @@ function checkCatMeow(features, duration) {
 
 function showNotMeow(reasons, features, duration) {
   const area = document.getElementById('resultsArea');
+  const diagnostic = `
+    📏 时长 ${(duration*1000).toFixed(0)}ms (猫叫 80-8000ms)
+    · 主频 ${Math.round(features.peakFreq)}Hz (猫叫 120-8000Hz)
+    · 谱心 ${Math.round(features.centroid)}Hz
+    · 过零率 ${(features.zcr*100).toFixed(1)}% (猫叫 2-65%)
+    · 得分 ${features._debugScore || 'N/A'}
+  `;
   area.innerHTML = `
     <div style="text-align:center;padding:20px 0">
       <div style="font-size:56px;margin-bottom:12px">🎙️❌</div>
@@ -779,20 +797,21 @@ function showNotMeow(reasons, features, duration) {
         未检测到猫咪叫声
       </div>
       <div style="font-size:13px;color:var(--sub);margin-bottom:4px">请靠近猫咪重新录音</div>
-      ${reasons.length > 0 ? `
-        <div style="margin-top:12px;background:var(--surface);border-radius:12px;padding:14px;text-align:left">
-          <div style="font-size:12px;color:var(--mute);margin-bottom:8px">📋 检测参考：</div>
-          ${reasons.map(r => `
-            <div style="font-size:12px;color:var(--sub);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
-              ⚠️ ${r}
-            </div>
-          `).join('')}
-          <div style="margin-top:8px;font-size:10px;color:var(--mute);line-height:1.8">
-            📏 时长 ${(duration * 1000).toFixed(0)}ms · 主频 ${Math.round(features.peakFreq)}Hz
-            · 谱心 ${Math.round(features.centroid)}Hz · 过零率 ${(features.zcr * 100).toFixed(0)}%
+      <div style="margin-top:12px;background:var(--surface);border-radius:12px;padding:14px;text-align:left">
+        <div style="font-size:12px;color:var(--mute);margin-bottom:8px">📋 声学分析结果：</div>
+        ${reasons.length > 0 ? reasons.map(r => `
+          <div style="font-size:12px;color:var(--warm);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+            ⚠️ ${r}
           </div>
+        `).join('') : `
+          <div style="font-size:12px;color:var(--sub);padding:4px 0">
+            声音特征不够明显，建议靠近声源并确保环境安静
+          </div>
+        `}
+        <div style="margin-top:8px;font-size:10px;color:var(--mute);line-height:1.8">
+          ${diagnostic}
         </div>
-      ` : ''}
+      </div>
     </div>
   `;
   document.getElementById('micHint').textContent = '未识别到猫叫 → 请重新录音';
