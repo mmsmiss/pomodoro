@@ -6,6 +6,7 @@ on:
     paths:
       - 'cat-translator-apk/**'
       - 'cat-translator-v2.html'
+      - 'cat-translator-cute.html'
       - '.github/workflows/build-cat-apk.yml'
   workflow_dispatch:
 

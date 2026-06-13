@@ -386,7 +386,7 @@ function breedImg(name){
     '土耳其梵猫':'Turkish_Van_Cat.jpg','德文卷毛猫':'Devon_Rex_cat.jpg'
   };
   var f=m[name];if(!f)return'<span style="font-size:36px">🐱</span>';
-  return'<img src="https://commons.wikimedia.org/wiki/Special:FilePath/'+encodeURIComponent(f)+'?width=200" alt="'+name+'" loading="lazy" onerror="this.parentElement.innerHTML=\'<span style=font-size:36px>🐱</span>\'" style="width:100%;height:100%;object-fit:cover">';
+  return'<img src="https://commons.wikimedia.org/wiki/Special:FilePath/'+encodeURIComponent(f)+'?width=200" alt="'+name+'" loading="lazy" onerror="this.outerHTML=\'<span style=font-size:36px;display:flex;align-items:center;justify-content:center;width:100%;height:100px>🐱</span>\'" style="width:100%;height:100%;object-fit:cover">';
 }
 
 // State
@@ -545,14 +545,27 @@ function showResults(results,humanCheck,rawFeatures){
 
 // Breed (TF.js)
 var tfReady=false,mNet=null;
+var _tfCdnIdx=0;
+var _tfCdns=[
+  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js',
+  'https://unpkg.com/@tensorflow/tfjs@4.20.0/dist/tf.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.20.0/tf.min.js'
+];
 function loadTF(cb){if(tfReady){cb();return}
-  var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js'
-  s.onload=function(){tfReady=true;cb()};s.onerror=function(){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">网络连接失败，下载不了模型</div>'};document.head.appendChild(s)}
+  function tryNext(){
+    if(_tfCdnIdx>=_tfCdns.length){
+      $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">⚠️ 网络连接失败<br><span style="font-size:12px">请检查WiFi或流量，换个网络再试试~</span></div>';
+      return
+    }
+    var s=document.createElement('script');s.src=_tfCdns[_tfCdnIdx];_tfCdnIdx++;
+    s.onload=function(){tfReady=true;cb()};s.onerror=tryNext;document.head.appendChild(s)
+  }
+  tryNext()}
 function loadModel(cb){if(mNet){cb(mNet);return}
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在学习识别猫咪品种…</div>'
   tf.loadGraphModel('model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(){
     $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">下载识别模型(~5MB)</div>'
-    tf.loadGraphModel('https://www.kaggle.com/api/v1/models/google/mobilenet-v2/tensorFlow2/140-224-classification/3/download').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">下载失败，检查网络再试试~</div>';console.error(e)})})}
+    tf.loadGraphModel('https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">下载失败，检查网络再试试~</div>';console.error(e)})})}
 
 function analyzeBreed(){
   var img=$('photoPreview').querySelector('img');if(!img)return
@@ -593,8 +606,9 @@ function deleteCat(id,cb){if(!db){cb(false);return}var t=db.transaction('cats','
 function toast(msg){var t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(function(){t.remove()},2100)}
 function renderCats(){getCats(function(cs){var l=$('catList');if(cs.length===0){l.innerHTML='<div class="empty"><div class="icon">🐱</div><div style="font-size:14px">还没有添加猫咪哦~</div><div style="font-size:11px;margin-top:4px">点上面的按钮添加你家的猫咪吧！</div></div>';return}
   l.innerHTML=cs.map(function(c){var recs=c.recordings||[];return'<div class="cat-card" onclick="viewCat('+c.id+')"><div class="cat-avatar">'+(c.photo?'<img src="'+c.photo+'">':'🐱')+'</div><div class="cat-info"><div class="cat-name">'+(c.name||'小可爱')+'</div><div class="cat-meta">'+(c.breed||'神秘猫咪')+' · 录过'+recs.length+'次声音</div></div><button class="btn-small" style="background:#ff4757;color:#fff;font-size:10px;padding:6px 10px" onclick="event.stopPropagation();rmCat('+c.id+')">🗑</button></div>'}).join('')})}
-function viewCat(id){getCats(function(cs){var c=cs.find(function(x){return x.id===id});if(!c)return;var recs=c.recordings||[];$('detailContent').innerHTML='<div style="text-align:center"><div style="width:88px;height:88px;border-radius:50%;overflow:hidden;margin:0 auto 10px;background:#ffe4e1;display:flex;align-items:center;justify-content:center;border:3px solid #ffb6c1">'+(c.photo?'<img src="'+c.photo+'" style="width:100%;height:100%;object-fit:cover">':'<span style="font-size:40px">🐱</span>')+'</div><h3 style="color:#5d3a4a">'+(c.name||'小可爱')+'</h3><div style="font-size:13px;color:#d4a0b0">品种：'+(c.breed||'神秘猫咪')+' | 录音：'+recs.length+'次</div>'+(recs.length>0?'<div style="margin-top:8px;text-align:left;font-size:12px;color:#c08497">'+recs.slice(-3).reverse().map(function(r){return'<div style="padding:4px 0;border-bottom:1px solid rgba(255,182,193,0.2)">'+(new Date(r.t)).toLocaleString('zh-CN')+': '+(r.e||[]).slice(0,2).map(function(e){return e.n+e.p+'%'}).join(', ')+'</div>'}).join('')+'</div>':'')+'</div>';$('detailModal').style.display='flex'})}
+function viewCat(id){getCats(function(cs){var c=cs.find(function(x){return x.id===id});if(!c)return;var recs=c.recordings||[];$('detailContent').innerHTML='<div style="text-align:center"><div style="width:88px;height:88px;border-radius:50%;overflow:hidden;margin:0 auto 10px;background:#ffe4e1;display:flex;align-items:center;justify-content:center;border:3px solid #ffb6c1">'+(c.photo?'<img src="'+c.photo+'" style="width:100%;height:100%;object-fit:cover">':'<span style="font-size:40px">🐱</span>')+'</div><h3 style="color:#5d3a4a">'+(c.name||'小可爱')+'</h3><div style="font-size:13px;color:#d4a0b0">品种：'+(c.breed||'神秘猫咪')+' | 录音：'+recs.length+'次</div>'+(recs.length>0?'<div style="margin-top:8px;text-align:left;font-size:12px;color:#c08497">'+recs.slice(-3).reverse().map(function(r,i){var ri=recs.length-1-i;return'<div style="padding:4px 0;border-bottom:1px solid rgba(255,182,193,0.2);display:flex;justify-content:space-between;align-items:center"><span>'+(new Date(r.t)).toLocaleString('zh-CN')+': '+(r.e||[]).slice(0,2).map(function(e){return e.n+e.p+'%'}).join(', ')+'</span><button onclick="event.stopPropagation();delRec('+c.id+','+ri+')" style="background:none;border:none;font-size:16px;cursor:pointer;padding:2px 6px;color:#ff6b6b" title="删除这条录音">🗑</button></div>'}).join('')+'</div>':'')+'</div>';$('detailModal').style.display='flex'})}
 function rmCat(id){if(!confirm('确定要删除吗？'))return;deleteCat(id,function(){renderCats()})}
+function delRec(cid,idx){if(!confirm('确定要删除这条录音吗？'))return;getCats(function(cs){var c=cs.find(function(x){return x.id===cid});if(!c)return;var recs=c.recordings||[];recs.splice(idx,1);updateCat(cid,{recordings:recs},function(){viewCat(cid);renderCats()})})}
 function saveToCat(){if(!lastResult){toast('请先录一段声音~');return}getCats(function(cs){if(cs.length===0){toast('请先在「我的猫」里加一只猫咪~');return}var h='<h3 style="color:#5d3a4a">💾 存到谁那里？</h3>';cs.forEach(function(c){h+='<div class="cat-card" onclick="doSave('+c.id+')" style="cursor:pointer"><div class="cat-avatar">'+(c.photo?'<img src="'+c.photo+'">':'🐱')+'</div><div class="cat-info"><div class="cat-name">'+c.name+'</div></div></div>'});$('detailContent').innerHTML=h;$('detailModal').style.display='flex'})}
 function doSave(cid){var rec={t:lastResult.timestamp,d:Math.round(lastResult.duration*1000),e:lastResult.results.slice(0,3).map(function(r){return{n:r.name,p:r.probability}})};getCats(function(cs){var c=cs.find(function(x){return x.id===cid});if(!c)return;var recs=c.recordings||[];recs.push(rec);if(recs.length>50)recs.shift();updateCat(cid,{recordings:recs},function(){$('detailModal').style.display='none';toast('✅ 存好啦！')})})}
 function renderBreedGrid(){$('breedGrid').innerHTML=CAT_BREEDS.map(function(b){return'<div class="breed-chip" onclick="showBreed(\''+b.name+'\')">'+breedImg(b.name)+'<div class="label">'+b.name+'</div></div>'}).join('')}
@@ -606,7 +620,7 @@ document.querySelectorAll('.tab-btn').forEach(function(b){b.onclick=function(){d
 $('galleryInput').onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){$('photoPreview').innerHTML='<img src="'+ev.target.result+'">';$('analyzeBtn').disabled=false};r.readAsDataURL(f)}
 $('analyzeBtn').onclick=analyzeBreed
 $('saveBtn').onclick=saveToCat
-$('addCatBtn').onclick=function(){var catPhotoData=null;$('catPhotoPv').innerHTML='<span class="placeholder">🐱</span>';$('catName').value='';$('addCatModal').style.display='flex'}
+$('addCatBtn').onclick=function(){window._catPhotoData=null;$('catPhotoPreview').innerHTML='<span class="placeholder">🐱</span>';$('catNameInput').value='';$('addCatModal').style.display='flex'}
 $('cancelAdd').onclick=function(){$('addCatModal').style.display='none'}
 $('confirmAdd').onclick=function(){var n=$('catNameInput').value.trim();if(!n){toast('给猫咪起个名字吧~');return};var d=window._catPhotoData||null;addCat({name:n,photo:d,breed:'',recordings:[],createdAt:Date.now()},function(){$('addCatModal').style.display='none';toast('✅ '+n+' 添加成功！');renderCats()})}
 $('catPhotoInput').onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){var img=new Image();img.onload=function(){var cvs=document.createElement('canvas'),mx=300,w=img.width,h=img.height;if(w>h){h=Math.round(h*mx/w);w=mx}else{w=Math.round(w*mx/h);h=mx}cvs.width=w;cvs.height=h;cvs.getContext('2d').drawImage(img,0,0,w,h);window._catPhotoData=cvs.toDataURL('image/jpeg',0.7);$('catPhotoPreview').innerHTML='<img src="'+window._catPhotoData+'">'};img.src=ev.target.result};r.readAsDataURL(f)}
