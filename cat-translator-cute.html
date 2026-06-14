@@ -973,14 +973,15 @@ function _loadWeightsChunked(totalLen,cb,progCb){
 }
 function loadModel(cb){if(mNet){cb(mNet);return}
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在加载识别模型…</div>'
-  // Check bridge is ready
+  // Check bridge; if model still loading on background thread, wait a bit
+  function doLoad(){
   if(typeof ModelBridge==='undefined'||!ModelBridge.isReady()){
-    $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型数据未就绪<br><span style="font-size:12px">请完全退出App后重试</span></div>';return
+    setTimeout(doLoad, 300); return // retry in 300ms
   }
   try{
-    var topo=JSON.parse(window.__MODEL_TOPO__);
-    var wm=JSON.parse(window.__MODEL_WM__);
-    var wlen=window.__MODEL_WEIGHTS_LEN__||0;
+    var topo=JSON.parse(ModelBridge.getTopologyJson());
+    var wm=JSON.parse(ModelBridge.getWeightsManifest());
+    var wlen=ModelBridge.getWeightsTotalLen();
     if(!topo||!wm||!wlen){throw new Error('模型元数据不完整')}
   }catch(e){
     $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型元数据错误<br><span style="font-size:12px">请重启App</span></div>';return
@@ -993,6 +994,7 @@ function loadModel(cb){if(mNet){cb(mNet);return}
   },function(pct){
     $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在加载识别模型…'+pct+'%</div>'
   })}
+  doLoad()} // kick off the load
 function analyzeBreed(){
   var img=$('photoPreview').querySelector('img');if(!img)return
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在识别猫咪品种…</div>'

@@ -33,15 +33,16 @@ public class MainActivity extends Activity {
     private static final String TAG = "CatTranslator";
     private static final int REQUEST_ALL = 1003;
     private static final int FILECHOOSER_RESULTCODE = 2001;
-    private static final int CHUNK_SIZE = 192 * 1024; // 192KB per chunk
+    private static final int CHUNK_SIZE = 256 * 1024; // 256KB per chunk
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
 
-    // Preloaded model data
-    private String modelTopologyJson;
-    private String weightsManifestJson;
-    private byte[] allWeights;
+    // Model data — loaded on background thread, served via Bridge
+    private volatile String topologyJson;
+    private volatile String weightsManifestJson;
+    private volatile byte[] allWeights;
+    private volatile boolean modelLoaded = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,8 +57,8 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(0xffffb6c1);
         getWindow().setNavigationBarColor(0xffffd4de);
 
-        // ── Preload model data from assets ──
-        preloadModelData();
+        // Start background model loading (don't block UI thread)
+        new Thread(this::loadModelInBackground, "ModelLoader").start();
 
         webView = new WebView(this);
         setContentView(webView);
@@ -77,15 +78,12 @@ public class MainActivity extends Activity {
             WebView.setWebContentsDebuggingEnabled(true);
         }
 
-        // Expose model data bridge to JavaScript
         webView.addJavascriptInterface(new ModelBridge(), "ModelBridge");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                Log.d(TAG, "Page loaded: " + url);
-                // Inject model metadata once page is ready
-                injectModelMeta();
+                Log.d(TAG, "Page loaded, model ready=" + modelLoaded);
             }
         });
 
@@ -93,7 +91,6 @@ public class MainActivity extends Activity {
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback,
                                              FileChooserParams fileChooserParams) {
-                Log.d(TAG, "onShowFileChooser called");
                 if (filePathCallback != null) {
                     filePathCallback.onReceiveValue(null);
                     filePathCallback = null;
@@ -102,10 +99,9 @@ public class MainActivity extends Activity {
                 try {
                     Intent intent = fileChooserParams.createIntent();
                     intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
-                    startActivityForResult(Intent.createChooser(intent, "选择照片"),
-                                           FILECHOOSER_RESULTCODE);
+                    startActivityForResult(Intent.createChooser(intent, "选择照片"), FILECHOOSER_RESULTCODE);
                 } catch (Exception e) {
-                    Log.e(TAG, "File chooser error: " + e.getMessage());
+                    Log.e(TAG, "File chooser: " + e.getMessage());
                     try {
                         Intent galleryIntent = new Intent(Intent.ACTION_GET_CONTENT);
                         galleryIntent.setType("image/*");
@@ -121,13 +117,12 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                Log.d(TAG, "onPermissionRequest: " + java.util.Arrays.toString(request.getResources()));
                 request.grant(request.getResources());
             }
 
             @Override
             public boolean onConsoleMessage(ConsoleMessage cm) {
-                Log.d(TAG, "JS [" + cm.messageLevel() + "] " + cm.message());
+                Log.d(TAG, "JS: " + cm.message());
                 return true;
             }
         });
@@ -137,53 +132,48 @@ public class MainActivity extends Activity {
         webView.setHorizontalScrollBarEnabled(false);
 
         webView.loadUrl("file:///android_asset/index.html");
-        Log.d(TAG, "Loading HTML from assets");
+        Log.d(TAG, "Loading HTML");
 
         requestRuntimePermissions();
     }
 
-    // ── Model preloading ──────────────────────────────────────────────────
-    // Reads ALL model files from assets into memory at startup.
-    // JS receives data through the ModelBridge interface — zero fetch(), zero network.
+    // ── Background model loading ─────────────────────────────────────────
 
-    private void preloadModelData() {
+    private void loadModelInBackground() {
         try {
-            // 1. Read model.json
+            // Read model.json
             String modelJson = readAssetString("model/model.json");
             Log.d(TAG, "model.json: " + modelJson.length() + " chars");
 
-            // 2. Extract modelTopology and weightsManifest
-            // Simple JSON parsing to avoid adding a JSON library dependency
-            int topoStart = modelJson.indexOf("\"modelTopology\"");
-            int topoValStart = modelJson.indexOf(":", topoStart) + 1;
-            // Navigate to the topology object (nested braces)
-            int braceCount = 0, topoObjStart = -1, topoObjEnd = -1;
-            for (int i = topoValStart; i < modelJson.length(); i++) {
+            // Extract modelTopology (between "modelTopology": and next field)
+            int ts = modelJson.indexOf("\"modelTopology\"");
+            int tv = modelJson.indexOf(":", ts) + 1;
+            int depth = 0, tStart = -1, tEnd = -1;
+            for (int i = tv; i < modelJson.length(); i++) {
                 char c = modelJson.charAt(i);
-                if (c == '{') { if (braceCount == 0) topoObjStart = i; braceCount++; }
-                else if (c == '}') { braceCount--; if (braceCount == 0) { topoObjEnd = i + 1; break; } }
+                if (c == '{') { if (depth == 0) tStart = i; depth++; }
+                else if (c == '}') { depth--; if (depth == 0) { tEnd = i + 1; break; } }
             }
-            if (topoObjStart >= 0 && topoObjEnd > topoObjStart) {
-                modelTopologyJson = modelJson.substring(topoObjStart, topoObjEnd);
-            }
+            topologyJson = (tStart >= 0 && tEnd > tStart) ? modelJson.substring(tStart, tEnd) : "{}";
 
-            int wmStart = modelJson.indexOf("\"weightsManifest\"");
-            int wmValStart = modelJson.indexOf("[", wmStart);
-            int wmBracket = 0, wmEnd = -1;
-            for (int i = wmValStart; i < modelJson.length(); i++) {
+            // Extract weightsManifest (between "weightsManifest": and next field)
+            int ws = modelJson.indexOf("\"weightsManifest\"");
+            int wv = modelJson.indexOf("[", ws);
+            int wDepth = 0, wEnd = -1;
+            for (int i = wv; i < modelJson.length(); i++) {
                 char c = modelJson.charAt(i);
-                if (c == '[') wmBracket++;
-                else if (c == ']') { wmBracket--; if (wmBracket == 0) { wmEnd = i + 1; break; } }
+                if (c == '[') wDepth++;
+                else if (c == ']') { wDepth--; if (wDepth == 0) { wEnd = i + 1; break; } }
             }
-            if (wmEnd > wmValStart) {
-                weightsManifestJson = modelJson.substring(wmValStart, wmEnd);
-            }
+            weightsManifestJson = (wEnd > wv) ? modelJson.substring(wv, wEnd) : "[]";
 
-            // 3. Read all .bin shard files
+            // Read weight shards
             String[] files = getAssets().list("model");
             java.util.List<String> shards = new java.util.ArrayList<>();
-            for (String f : files) {
-                if (f.endsWith(".bin")) shards.add(f);
+            if (files != null) {
+                for (String f : files) {
+                    if (f.endsWith(".bin")) shards.add(f);
+                }
             }
             java.util.Collections.sort(shards);
 
@@ -194,54 +184,53 @@ public class MainActivity extends Activity {
                 Log.d(TAG, "  " + shard + ": " + (data.length / 1024) + " KB");
             }
             allWeights = allBytes.toByteArray();
-            Log.d(TAG, "Weights total: " + (allWeights.length / 1024 / 1024) + " MB");
+            Log.d(TAG, "Weights: " + (allWeights.length / 1024 / 1024) + " MB, shards=" + shards.size());
 
-        } catch (IOException e) {
-            Log.e(TAG, "Failed to load model: " + e.getMessage());
+            modelLoaded = true;
+            Log.d(TAG, "Model ready");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Model load failed: " + e.getMessage(), e);
+            // modelLoaded stays false — JS handles gracefully
         }
     }
 
-    private void injectModelMeta() {
-        if (modelTopologyJson == null || weightsManifestJson == null || allWeights == null) {
-            Log.e(TAG, "Model data not loaded, skipping injection");
-            return;
-        }
-        // Escape backticks and template expression for safe injection
-        String safeTopo = modelTopologyJson
-            .replace("\\", "\\\\")
-            .replace("`", "\\`")
-            .replace("${", "\\${");
-        String safeWM = weightsManifestJson
-            .replace("\\", "\\\\")
-            .replace("`", "\\`")
-            .replace("${", "\\${");
-
-        String js = "window.__MODEL_TOPO__=`" + safeTopo + "`;" +
-                    "window.__MODEL_WM__=`" + safeWM + "`;" +
-                    "window.__MODEL_WEIGHTS_LEN__=" + allWeights.length + ";" +
-                    "console.log('Model meta injected: topo='+window.__MODEL_TOPO__.length+' wm='+window.__MODEL_WM__.length+' weightsLen='+window.__MODEL_WEIGHTS_LEN__)";
-
-        webView.evaluateJavascript(js, v -> Log.d(TAG, "Model meta injection: " + v));
-    }
-
-    // ── JS Bridge: delivers model weight data in chunks ───────────────────
+    // ── JS Bridge ─────────────────────────────────────────────────────────
+    // All model data flows through this bridge. No evaluateJavascript for
+    // large data — avoids the 10KB-ish size limit and escaping nightmares.
 
     public class ModelBridge {
         @JavascriptInterface
         public boolean isReady() {
-            return allWeights != null && allWeights.length > 0;
+            return modelLoaded && allWeights != null && topologyJson != null;
+        }
+
+        @JavascriptInterface
+        public String getTopologyJson() {
+            return topologyJson != null ? topologyJson : "{}";
+        }
+
+        @JavascriptInterface
+        public String getWeightsManifest() {
+            return weightsManifestJson != null ? weightsManifestJson : "[]";
+        }
+
+        @JavascriptInterface
+        public int getWeightsTotalLen() {
+            return allWeights != null ? allWeights.length : 0;
         }
 
         @JavascriptInterface
         public String getWeightsChunk(int startByte) {
             try {
+                if (allWeights == null) return "";
                 int len = Math.min(CHUNK_SIZE, allWeights.length - startByte);
                 if (len <= 0) return "";
                 byte[] chunk = new byte[len];
                 System.arraycopy(allWeights, startByte, chunk, 0, len);
                 return Base64.encodeToString(chunk, Base64.NO_WRAP);
             } catch (Exception e) {
-                Log.w(TAG, "Chunk error at " + startByte + ": " + e.getMessage());
+                Log.w(TAG, "Chunk err @" + startByte + ": " + e.getMessage());
                 return "";
             }
         }
@@ -287,11 +276,11 @@ public class MainActivity extends Activity {
                 Log.w(TAG, "Permission denied: " + permissions[i]);
                 final String msg;
                 if (Manifest.permission.CAMERA.equals(permissions[i]))
-                    msg = "相机权限被拒，拍照不可用。请到系统设置中开启";
+                    msg = "相机权限被拒，拍照不可用";
                 else if (Manifest.permission.RECORD_AUDIO.equals(permissions[i]))
-                    msg = "麦克风权限被拒，录音不可用。请到系统设置中开启";
+                    msg = "麦克风权限被拒，录音不可用";
                 else
-                    msg = "权限被拒，部分功能不可用";
+                    msg = "权限被拒";
                 webView.post(() -> webView.evaluateJavascript(
                     "if(typeof showPermissionHint==='function')showPermissionHint('" +
                     msg.replace("'", "\\'") + "')", null));
@@ -302,21 +291,20 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        Log.d(TAG, "onActivityResult: req=" + requestCode + " res=" + resultCode);
         if (requestCode == FILECHOOSER_RESULTCODE) {
-            if (filePathCallback == null) { Log.w(TAG, "filePathCallback is null"); return; }
+            if (filePathCallback == null) return;
             if (resultCode == RESULT_OK && data != null) {
                 Uri result = data.getData();
-                Log.d(TAG, "File selected: " + result);
                 if (result != null) {
                     try {
                         getContentResolver().takePersistableUriPermission(
                             result, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    } catch (Exception e) { Log.w(TAG, "takePersistable failed: " + e.getMessage()); }
+                    } catch (Exception ignored) {}
                     filePathCallback.onReceiveValue(new Uri[]{result});
-                } else { filePathCallback.onReceiveValue(null); }
+                } else {
+                    filePathCallback.onReceiveValue(null);
+                }
             } else {
-                Log.d(TAG, "File chooser cancelled or no data");
                 filePathCallback.onReceiveValue(null);
             }
             filePathCallback = null;
