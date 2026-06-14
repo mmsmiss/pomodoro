@@ -959,9 +959,9 @@ function loadTF(cb){if(tfReady){cb();return}
     s.onload=function(){tfReady=true;cb()};s.onerror=tryNext;document.head.appendChild(s)
   }
   tryNext()}
-// ── Load model from internal storage (XHR to file://, zero network) ──
-// Model files are copied from assets to internal storage by MainActivity.
-// We use XMLHttpRequest (NOT fetch) because WebView XHR handles file:// URLs.
+// ── Load model via XHR (same-origin file://, zero network) ────────────────
+// HTML + model + TF.js all live in getFilesDir()/app/ — same origin.
+// fetch() may not work from file://, but XMLHttpRequest DOES.
 function _xhrGet(url,responseType,cb){
   var x=new XMLHttpRequest();
   x.responseType=responseType;
@@ -971,21 +971,15 @@ function _xhrGet(url,responseType,cb){
   x.send()
 }
 function loadModel(cb){if(mNet){cb(mNet);return}
-  $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在加载本地模型…</div>'
-  var dir=window.__MODEL_DIR__;
-  if(!dir){
-    // Browser fallback: CDN
-    tf.loadGraphModel('https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3/model.json')
-      .then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''})
-      .catch(function(e){console.warn(e);cb(null)})
-    return
-  }
-  // APK: XHR to file:// URLs
-  _xhrGet(dir+'model.json','text',function(jsonText){
-    if(!jsonText){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型文件读取失败<br><span style="font-size:12px">请重启App</span></div>';cb(null);return}
-    try{var modelDef=JSON.parse(jsonText)}catch(e){cb(null);return}
-    _xhrGet(dir+'weights.bin','arraybuffer',function(wbuf){
-      if(!wbuf){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 权重文件读取失败<br><span style="font-size:12px">请重启App</span></div>';cb(null);return}
+  $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在加载识别模型…</div>'
+  // XHR model.json (same origin — always works)
+  _xhrGet('./model/model.json','text',function(jsonText){
+    if(!jsonText){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型文件缺失<br><span style="font-size:12px">请重启App</span></div>';cb(null);return}
+    var modelDef;
+    try{modelDef=JSON.parse(jsonText)}catch(e){cb(null);return}
+    // XHR weights.bin (concatenated by Java)
+    _xhrGet('./model/weights.bin','arraybuffer',function(wbuf){
+      if(!wbuf){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 权重文件缺失<br><span style="font-size:12px">请重启App</span></div>';cb(null);return}
       tf.loadGraphModel(tf.io.fromMemory({
         modelTopology:modelDef.modelTopology,
         weightSpecs:modelDef.weightsManifest,

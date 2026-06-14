@@ -26,7 +26,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 
 public class MainActivity extends Activity {
 
@@ -50,10 +49,14 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(0xffffb6c1);
         getWindow().setNavigationBarColor(0xffffd4de);
 
-        // ── Copy model files to internal storage (background thread) ──
-        // WebView XHR can read file:// URLs, so JS loads model data
-        // via XMLHttpRequest — no fetch(), no shouldInterceptRequest.
-        new Thread(this::prepareModelFiles, "ModelPrep").start();
+        // ── Copy HTML + model + TF.js to internal storage (same origin) ──
+        // All files go to getFilesDir()/app/ so fetch() works same-origin.
+        // Runs synchronously on main thread — model is ~13MB, takes ~200ms.
+        try {
+            prepareAppDir();
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to prepare app dir: " + e.getMessage(), e);
+        }
 
         webView = new WebView(this);
         setContentView(webView);
@@ -66,7 +69,6 @@ public class MainActivity extends Activity {
         ws.setMediaPlaybackRequiresUserGesture(false);
         ws.setDatabaseEnabled(true);
         ws.setGeolocationEnabled(false);
-        ws.setAllowFileAccessFromFileURLs(true); // critical for XHR file://
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(true);
@@ -124,65 +126,57 @@ public class MainActivity extends Activity {
         webView.setVerticalScrollBarEnabled(false);
         webView.setHorizontalScrollBarEnabled(false);
 
-        webView.loadUrl("file:///android_asset/index.html");
-        Log.d(TAG, "Loading HTML");
+        // Load from internal storage — same origin as model files
+        File appDir = new File(getFilesDir(), "app");
+        webView.loadUrl("file://" + appDir.getAbsolutePath() + "/index.html");
+        Log.d(TAG, "Loading from: " + appDir.getAbsolutePath());
 
         requestRuntimePermissions();
     }
 
-    // ── Copy model assets to internal storage ────────────────────────────
-    // JavaScript loads them via XMLHttpRequest to file:// URLs.
-    // XHR from file:// origin works in WebView with allowFileAccess=true.
+    // ── Copy everything to one directory ─────────────────────────────────
 
-    private void prepareModelFiles() {
-        try {
-            File modelDir = new File(getFilesDir(), "model");
-            modelDir.mkdirs();
+    private void prepareAppDir() throws IOException {
+        File appDir = new File(getFilesDir(), "app");
+        appDir.mkdirs();
 
-            // Copy model.json
-            String modelJson = readAssetString("model/model.json");
-            writeFile(new File(modelDir, "model.json"), modelJson.getBytes("UTF-8"));
-            Log.d(TAG, "Copied model.json (" + modelJson.length() + " chars)");
+        // 1. Copy HTML
+        copyAsset("index.html", new File(appDir, "index.html"));
 
-            // Copy & concatenate .bin shards into a single weights.bin
-            String[] files = getAssets().list("model");
-            java.util.List<String> shards = new java.util.ArrayList<>();
-            if (files != null) {
-                for (String f : files) {
-                    if (f.endsWith(".bin")) shards.add(f);
-                }
+        // 2. Copy TF.js
+        copyAsset("tf.min.js", new File(appDir, "tf.min.js"));
+
+        // 3. Copy model.json
+        File modelDir = new File(appDir, "model");
+        modelDir.mkdirs();
+        copyAsset("model/model.json", new File(modelDir, "model.json"));
+
+        // 4. Concatenate .bin shards into single weights.bin
+        File weightsFile = new File(modelDir, "weights.bin");
+        FileOutputStream os = new FileOutputStream(weightsFile);
+        String[] files = getAssets().list("model");
+        java.util.List<String> shards = new java.util.ArrayList<>();
+        if (files != null) {
+            for (String f : files) {
+                if (f.endsWith(".bin")) shards.add(f);
             }
-            java.util.Collections.sort(shards);
-
-            File weightsFile = new File(modelDir, "weights.bin");
-            OutputStream os = new FileOutputStream(weightsFile);
-            long total = 0;
-            for (String shard : shards) {
-                byte[] data = readAssetBytes("model/" + shard);
-                os.write(data);
-                total += data.length;
-                Log.d(TAG, "  " + shard + ": " + (data.length / 1024) + " KB");
-            }
-            os.close();
-            Log.d(TAG, "Copied weights.bin (" + (total / 1024 / 1024) + " MB, " + shards.size() + " shards)");
-
-            // Notify JS that model is ready
-            final String modelDirPath = modelDir.getAbsolutePath();
-            webView.post(() -> webView.evaluateJavascript(
-                "window.__MODEL_DIR__='" + modelDirPath.replace("'", "\\'") + "/';" +
-                "console.log('Model dir: '+window.__MODEL_DIR__)",
-                v -> Log.d(TAG, "Model dir injected: " + v)
-            ));
-
-        } catch (IOException e) {
-            Log.e(TAG, "Failed to prepare model files: " + e.getMessage(), e);
         }
+        java.util.Collections.sort(shards);
+        long total = 0;
+        for (String shard : shards) {
+            byte[] data = readAssetBytes("model/" + shard);
+            os.write(data);
+            total += data.length;
+        }
+        os.close();
+        Log.d(TAG, "App dir ready. weights.bin: " + (total / 1024 / 1024) + " MB, shards=" + shards.size());
     }
 
-    // ── Asset helpers ─────────────────────────────────────────────────────
-
-    private String readAssetString(String path) throws IOException {
-        return new String(readAssetBytes(path), "UTF-8");
+    private void copyAsset(String assetPath, File dest) throws IOException {
+        byte[] data = readAssetBytes(assetPath);
+        FileOutputStream os = new FileOutputStream(dest);
+        os.write(data);
+        os.close();
     }
 
     private byte[] readAssetBytes(String path) throws IOException {
@@ -193,12 +187,6 @@ public class MainActivity extends Activity {
         while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
         is.close();
         return bos.toByteArray();
-    }
-
-    private void writeFile(File file, byte[] data) throws IOException {
-        FileOutputStream os = new FileOutputStream(file);
-        os.write(data);
-        os.close();
     }
 
     // ── Permissions & lifecycle ───────────────────────────────────────────
@@ -223,10 +211,9 @@ public class MainActivity extends Activity {
         for (int i = 0; i < perms.length; i++) {
             if (grants[i] == PackageManager.PERMISSION_DENIED) {
                 final String m = Manifest.permission.CAMERA.equals(perms[i])
-                    ? "相机权限被拒，拍照不可用" : "麦克风权限被拒，录音不可用";
+                    ? "相机权限被拒" : "麦克风权限被拒";
                 webView.post(() -> webView.evaluateJavascript(
-                    "if(typeof showPermissionHint==='function')showPermissionHint('" +
-                    m.replace("'", "\\'") + "')", null));
+                    "alert('" + m.replace("'", "\\'") + "')", null));
             }
         }
     }
