@@ -942,66 +942,109 @@ function loadTF(cb){if(tfReady){cb();return}
     s.onload=function(){tfReady=true;cb()};s.onerror=tryNext;document.head.appendChild(s)
   }
   tryNext()}
-// ── Model loading via WebViewAssetLoader (zero network) ────────────────
-// Page is served from https://appassets.androidplatform.net/assets/index.html
-// Model files are at /model/model.json which maps to assets/model/
-// This is the official AndroidX approach — fetch() intercepts at Chromium level
+// Load model — fallback only (WebViewAssetLoader, zero network)
 function loadModel(cb){if(mNet){cb(mNet);return}
-  $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在加载识别模型…</div>'
+  $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在加载本地模型…</div>'
   tf.loadGraphModel('/model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e){
-    console.error('Model load error:',e.message||e);
-    $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型加载失败<br><span style="font-size:12px">请完全退出App后重试</span></div>'
+    console.warn('Local model load failed:',e.message||e);
+    cb(null) // signal failure, caller handles
   })}
 function analyzeBreed(){
   var img=$('photoPreview').querySelector('img');if(!img)return
+  var apiKey=getAIKey(),provider=getAIProvider();
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在识别猫咪品种…</div>'
-  loadTF(function(){loadModel(function(model){
-    var t=tf.tidy(function(){return tf.browser.fromPixels(img).resizeBilinear([224,224]).expandDims(0).toFloat().div(127.5).sub(1)})
-    model.predict(t).data().then(function(preds){t.dispose()
-      var items=[];for(var i=0;i<preds.length;i++)items.push({idx:i,prob:preds[i]});
-      items.sort(function(a,b){return b.prob-a.prob});
 
-      // ImageNet cat class mapping (11 of 1000 classes)
-      var catIds={281:1,282:1,283:1,284:1,285:1,286:1,287:1,288:1,289:1,290:1,291:1}
-      var catLabels={281:'虎斑猫',282:'虎猫',283:'波斯猫',284:'暹罗猫',285:'埃及猫',286:'美洲狮',287:'猞猁',288:'狮子',289:'猎豹',290:'雪豹',291:'缅因猫'}
-      var top10=items.slice(0,10);
-      var isCat=top10.some(function(x){return catIds[x.idx]});
+  // ── Primary: AI vision (DeepSeek/Qwen) if key available ──
+  if(apiKey){
+    // Convert image to base64 JPEG (~50KB for API)
+    var cvs=document.createElement('canvas'),mw=512;
+    var iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height;
+    var ratio=mw/Math.max(iw,ih);
+    cvs.width=Math.round(iw*ratio);cvs.height=Math.round(ih*ratio);
+    cvs.getContext('2d').drawImage(img,0,0,cvs.width,cvs.height);
+    var imgB64=cvs.toDataURL('image/jpeg',0.7).split(',')[1];
 
-      if(!isCat){
-        $('breedResults').innerHTML='<div style="text-align:center;padding:14px"><div style="font-size:40px;margin-bottom:6px">🤔</div><div style="font-size:15px;font-weight:700;color:#ff8c52">没有识别到猫咪</div><div style="font-size:12px;color:#c9a0b0;margin-top:4px">请拍一张清晰的猫咪正面照片~</div></div>';return
-      }
+    var endpoint,model;
+    if(provider==='qwen'){
+      endpoint='https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+      model='qwen-vl-plus';
+    }else{
+      endpoint='https://api.deepseek.com/v1/chat/completions';
+      model='deepseek-chat';
+    }
 
-      // Build ImageNet cat predictions
-      var imgnetResults=top10.filter(function(x){return catIds[x.idx]})
-        .map(function(x){return{name:catLabels[x.idx]||'猫',prob:Math.round(x.prob*100)}});
+    var breedNames=CAT_BREEDS.map(function(b){return b.name}).join('、');
 
-      // ── Hybrid breed matching: ImageNet + visual features ──
-      var allBreeds=matchBreeds(img,imgnetResults,items);
-      var top3=allBreeds.slice(0,5);
+    // Call vision API with 15s timeout
+    var ctrl=new AbortController(),timer=setTimeout(function(){ctrl.abort()},15000);
+    fetch(endpoint,{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+      body:JSON.stringify({model:model,messages:[{role:'user',content:[
+        {type:'image_url',image_url:{url:'data:image/jpeg;base64,'+imgB64}},
+        {type:'text',text:'这是一张猫咪的照片。请帮我识别这是哪种猫。\n\n可能的品种包括：'+breedNames+'\n\n请按JSON回复(不要其他文字):\n{"breed":"品种名称(从上面列表中选最接近的,如果不是猫咪就填 不是猫)","traits":"简短性格描述(10字内)","vocal":"叫声特征(8字内)","confidence":0-100,"why":"判断依据(20字内)","notCat":true或false}'}
+      ]}],temperature:0.5,max_tokens:250}),signal:ctrl.signal}
+    ).then(function(r){clearTimeout(timer);return r.json()})
+    .then(function(data){
+      var txt=data.choices[0].message.content;
+      var jm=txt.match(/\{[^}]*\}/);
+      if(!jm) throw new Error('无法解析');
+      var r=JSON.parse(jm[0]);
+      showBreedResult(r, img);
+    }).catch(function(e){
+      clearTimeout(timer);
+      console.warn('AI vision failed:',e.message||e);
+      // Fall through to offline breed matcher
+      tryOfflineBreed(img);
+    });
+    return
+  }
 
-      // Show top 3 breeds (filter out those with score 0 or very low)
-      var show=top3.filter(function(b){return b.rawScore>0.15}).slice(0,3);
-      if(show.length===0) show=top3.slice(0,1); // at least show something
+  // ── Fallback: offline TF.js model + hybrid matcher ──
+  tryOfflineBreed(img);
 
-      var total=show.reduce(function(s,b){return s+b.rawScore},0);
-      if(total===0) total=1;
+  function tryOfflineBreed(img){
+    loadTF(function(){
+      loadModel(function(model){
+        if(!model){$('breedResults').innerHTML='<div style="text-align:center;padding:14px"><div style="font-size:40px;margin-bottom:6px">🤖</div><div style="font-size:15px;font-weight:700;color:#ff8c52">无法加载识别模型</div><div style="font-size:12px;color:#c9a0b0;margin-top:6px">请填入DeepSeek或千问API Key使用AI识别</div><div style="font-size:10px;color:#c9a0b0;margin-top:4px">设置位置：听声音页面底部</div></div>';return}
+        var t=tf.tidy(function(){return tf.browser.fromPixels(img).resizeBilinear([224,224]).expandDims(0).toFloat().div(127.5).sub(1)})
+        model.predict(t).data().then(function(preds){t.dispose()
+          var items=[];for(var i=0;i<preds.length;i++)items.push({idx:i,prob:preds[i]});
+          items.sort(function(a,b){return b.prob-a.prob});
+          var catIds={281:1,282:1,283:1,284:1,285:1,286:1,287:1,288:1,289:1,290:1,291:1}
+          var catLabels={281:'虎斑猫',282:'虎猫',283:'波斯猫',284:'暹罗猫',285:'埃及猫',286:'美洲狮',287:'猞猁',288:'狮子',289:'猎豹',290:'雪豹',291:'缅因猫'}
+          var top10=items.slice(0,10);
+          var isCat=top10.some(function(x){return catIds[x.idx]});
+          if(!isCat){
+            $('breedResults').innerHTML='<div style="text-align:center;padding:14px"><div style="font-size:40px;margin-bottom:6px">🤔</div><div style="font-size:15px;font-weight:700;color:#ff8c52">没有识别到猫咪</div><div style="font-size:12px;color:#c9a0b0;margin-top:4px">请拍一张清晰的猫咪正面照片~</div></div>';return
+          }
+          var imgnetResults=top10.filter(function(x){return catIds[x.idx]}).map(function(x){return{name:catLabels[x.idx]||'猫',prob:Math.round(x.prob*100)}});
+          var allBreeds=matchBreeds(img,imgnetResults,items);
+          var top3=allBreeds.slice(0,5);
+          var show=top3.filter(function(b){return b.rawScore>0.15}).slice(0,3);
+          if(show.length===0) show=top3.slice(0,1);
+          var total=show.reduce(function(s,b){return s+b.rawScore},0);if(total===0) total=1;
+          var diagInfo='';
+          if(show.length>0){var d=show[0].diag;diagInfo='<div style="margin-top:4px;font-size:9px;color:#c9a0b0;text-align:center">📸 图片分析: 毛色'+d.color+'% · 毛发'+d.furType+' · AI'+d.imgNet+'%</div>';}
+          $('breedResults').innerHTML='<div style="margin-top:8px;font-size:13px;color:#d4a0b0;font-weight:700;text-align:center">📸 这只小猫可能是…</div>'+
+            show.map(function(b){var prob=Math.round(b.rawScore/total*100);return'<div class="result-item"><div style="min-width:52px;height:52px;border-radius:12px;overflow:hidden;flex-shrink:0;background:#ffe4e1">'+breedImg(b.breed.name)+'</div><div class="result-info"><div class="result-name">'+b.breed.name+'</div><div class="result-desc">性格:'+b.breed.traits+' | 声音:'+b.breed.vocal+'</div><div class="result-bar-bg"><div class="result-bar-fg" style="width:'+prob+'%;background:#7ec8a0"></div></div></div><div class="result-pct" style="color:#7ec8a0">'+prob+'%</div></div>'}).join('')+diagInfo+'<div style="margin-top:8px;font-size:10px;color:#c9a0b0;text-align:center">⚠️ 基于照片视觉特征的猜测，不是品种鉴定</div>'
+        })})})}
+}
 
-      var diagInfo='';
-      if(show.length>0){
-        var d=show[0].diag;
-        diagInfo='<div style="margin-top:4px;font-size:9px;color:#c9a0b0;text-align:center">📸 图片分析: 毛色'+d.color+'% · 毛发'+d.furType+' · AI'+d.imgNet+'%</div>';
-      }
-
-      $('breedResults').innerHTML='<div style="margin-top:8px;font-size:13px;color:#d4a0b0;font-weight:700;text-align:center">📸 这只小猫可能是…</div>'+
-        show.map(function(b){
-          var prob=Math.round(b.rawScore/total*100);
-          return'<div class="result-item"><div style="min-width:52px;height:52px;border-radius:12px;overflow:hidden;flex-shrink:0;background:#ffe4e1">'+breedImg(b.breed.name)+'</div>'+
-          '<div class="result-info"><div class="result-name">'+b.breed.name+'</div><div class="result-desc">性格:'+b.breed.traits+' | 声音:'+b.breed.vocal+'</div>'+
-          '<div class="result-bar-bg"><div class="result-bar-fg" style="width:'+prob+'%;background:#7ec8a0"></div></div></div><div class="result-pct" style="color:#7ec8a0">'+prob+'%</div></div>'
-        }).join('')+
-        diagInfo+
-        '<div style="margin-top:8px;font-size:10px;color:#c9a0b0;text-align:center">⚠️ 基于照片视觉特征的猜测，不是品种鉴定</div>'
-    })})})}
+// ── AI vision breed result display ──
+function showBreedResult(r, img){
+  var isNotCat=r.notCat||(r.breed==='不是猫');
+  if(isNotCat){
+    $('breedResults').innerHTML='<div style="text-align:center;padding:14px"><div style="font-size:40px;margin-bottom:6px">🤔</div><div style="font-size:15px;font-weight:700;color:#ff8c52">AI 判断：这不是猫咪</div><div style="font-size:12px;color:#c9a0b0;margin-top:4px">'+(r.why||'请拍一张猫咪的照片')+'</div><div style="margin-top:10px;font-size:10px;color:#c9a0b0">🤖 由 AI 视觉模型识别</div></div>';return
+  }
+  var c=r.confidence||70;
+  var cc=c>75?'#7ec8a0':(c>50?'#f4a460':'#c9a0b0');
+  $('breedResults').innerHTML='<div style="margin-top:8px;font-size:13px;color:#d4a0b0;font-weight:700;text-align:center">🤖 AI 识别结果</div>'+
+    '<div class="result-item"><div style="min-width:52px;height:52px;border-radius:12px;overflow:hidden;flex-shrink:0;background:#ffe4e1">'+breedImg(r.breed||'猫')+'</div>'+
+    '<div class="result-info"><div class="result-name">'+(r.breed||'未知')+'</div><div class="result-desc">性格:'+(r.traits||'?')+' | 声音:'+(r.vocal||'?')+'</div>'+
+    '<div class="result-bar-bg"><div class="result-bar-fg" style="width:'+c+'%;background:'+cc+'"></div></div></div><div class="result-pct" style="color:'+cc+'">'+c+'%</div></div>'+
+    (r.why?'<div style="margin-top:6px;font-size:10px;color:#c9a0b0;text-align:center">📝 '+r.why+'</div>':'')+
+    '<div style="margin-top:6px;font-size:10px;color:#c9a0b0;text-align:center">🤖 由 DeepSeek/千问 视觉模型识别</div>'
+}
 
 // Camera
 var _camStream=null;
