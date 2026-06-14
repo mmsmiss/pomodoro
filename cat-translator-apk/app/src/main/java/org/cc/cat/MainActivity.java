@@ -73,7 +73,8 @@ public class MainActivity extends Activity {
                 String url = request.getUrl().toString();
                 // Serve bundled model files via fake HTTPS URL so fetch() works
                 if (url.startsWith("http://127.0.0.1/model/")) {
-                    String assetPath = url.substring("http://127.0.0.1/model/".length());
+                    // Remove "http://127.0.0.1/model/" prefix, then prepend "model/"
+                    String assetPath = "model/" + url.substring("http://127.0.0.1/model/".length());
                     try {
                         InputStream is = getAssets().open(assetPath);
                         String mime;

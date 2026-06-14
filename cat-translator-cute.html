@@ -551,59 +551,55 @@ function findHumanF0(samples,sr){
 // Requires user-provided API key (stored in localStorage)
 // Falls back gracefully if offline, no key, or API error
 var _dsCache={};
-function getDSKey(){
+function getAIKey(){
   var k=$('dsApiKey').value.trim();
-  if(!k) k=localStorage.getItem('ds_api_key')||'';
+  if(!k) k=localStorage.getItem('ai_api_key')||'';
   return k;
 }
-function saveDSKey(k){localStorage.setItem('ds_api_key',k);$('dsStatus').style.display='block';$('dsStatus').textContent='✅ API Key 已保存'}
+function getAIProvider(){return $('aiProvider').value||'deepseek'}
+function saveAIKey(k){localStorage.setItem('ai_api_key',k);$('dsStatus').style.display='block';$('dsStatus').textContent='✅ API Key 已保存'}
 
-// Auto-load saved key and set up save-on-input
-function initDSKey(){
-  var saved=getDSKey();
+// Auto-load saved key, set up save-on-input, update links on provider change
+function initAIKey(){
+  var saved=getAIKey();
   if(saved){$('dsApiKey').value=saved;$('dsStatus').style.display='block';$('dsStatus').textContent='✅ 已加载保存的 API Key'}
   $('dsApiKey').addEventListener('input',function(){
     var v=this.value.trim();
-    if(v.startsWith('sk-')&&v.length>30) saveDSKey(v);
+    if(v.length>20) saveAIKey(v);
     else if(!v) $('dsStatus').style.display='none';
   });
-  // Also save on blur if valid
   $('dsApiKey').addEventListener('blur',function(){
     var v=this.value.trim();
-    if(v.startsWith('sk-')&&v.length>30) saveDSKey(v);
+    if(v.length>20) saveAIKey(v);
+  });
+  $('aiProvider').addEventListener('change',function(){
+    var p=this.value;
+    $('aiLink1').style.display=p==='deepseek'?'':'none';
+    $('aiLink2').style.display=p==='qwen'?'':'none';
   });
 }
 
-async function deepseekAnalyze(features,localResults,apiKey){
+// ── AI-enhanced analysis (DeepSeek / Qwen / ...) ──
+async function aiAnalyze(features,localResults,apiKey,provider){
   var durMs=Math.round(features.n/features.sr*1000);
-  var contourLabel=features.contour>0.06?'上升':(features.contour<-0.06?'下降':'平稳');
+  var ct=features.contour>0.06?'上升':(features.contour<-0.06?'下降':'平稳');
   var top3Txt=localResults.map(function(r){return '- '+r.emoji+' '+r.name+' '+r.probability+'%: '+r.desc}).join('\n');
 
-  var prompt=`你是猫咪声学行为专家。请根据以下声学参数判断猫咪的情绪:
-声学参数:
-- 基频(F0): ${Math.round(features.peakFreq)} Hz
-- 时长: ${durMs} ms
-- 过零率: ${Math.round(features.zcr*100)}%
-- 语调轮廓: ${contourLabel} (值:${Math.round(features.contour*100)}%)
-- 周期性谐波比: ${Math.round(features.loRatio*100)}%
-- 能量(RMS): ${Math.round(features.rms*10000)/10000}
-- 叫声类型: ${localResults.callType.label}
+  var prompt='你是猫咪声学行为专家。请根据以下声学参数判断猫咪的情绪。\n声学参数:\n- 基频(F0): '+Math.round(features.peakFreq)+' Hz\n- 时长: '+durMs+' ms\n- 过零率: '+Math.round(features.zcr*100)+'%\n- 语调轮廓: '+ct+' (值:'+Math.round(features.contour*100)+'%)\n- 周期性谐波比: '+Math.round(features.loRatio*100)+'%\n- 能量(RMS): '+(Math.round(features.rms*10000)/10000)+'\n- 叫声类型: '+localResults.callType.label+'\n\n本地声学分析结果:\n'+top3Txt+'\n\n请给出JSON(不要其他文字):\n{"emotion":"最可能的1-2个词","feeling":"猫咪想说什么(一句话,中文,适合小朋友)","why":"为什么这样判断(简短)","confidence":0-100}';
 
-本地声学分析结果:
-${top3Txt}
+  var endpoint,model;
+  if(provider==='qwen'){
+    endpoint='https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+    model='qwen-turbo';
+  }else{
+    endpoint='https://api.deepseek.com/v1/chat/completions';
+    model='deepseek-chat';
+  }
 
-请给出JSON(不要其他文字):
-{"emotion":"最可能的1-2个词","feeling":"猫咪想说什么(一句话,中文,适合小朋友)","why":"为什么这样判断(简短)","confidence":0-100}`;
-
-  var resp=await fetch('https://api.deepseek.com/v1/chat/completions',{
+  var resp=await fetch(endpoint,{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-    body:JSON.stringify({
-      model:'deepseek-chat',
-      messages:[{role:'user',content:prompt}],
-      temperature:0.6,
-      max_tokens:200
-    })
+    body:JSON.stringify({model:model,messages:[{role:'user',content:prompt}],temperature:0.6,max_tokens:200})
   });
 
   if(!resp.ok){
@@ -613,8 +609,6 @@ ${top3Txt}
 
   var data=await resp.json();
   var content=data.choices[0].message.content;
-
-  // Parse JSON from response (DeepSeek sometimes wraps in code blocks)
   var jsonMatch=content.match(/\{[^}]*\}/);
   if(!jsonMatch) throw new Error('无法解析AI回复');
   return JSON.parse(jsonMatch[0]);
@@ -632,19 +626,39 @@ async function analyze(){
     $('downloadBtn').onclick=function(){var a=document.createElement('a');a.href=url;a.download='小猫声音_'+Date.now()+'.webm';a.click()}
     var buf=await blob.arrayBuffer();var c=await ctx();var audioBuf=await c.decodeAudioData(buf)
     var dur=audioBuf.duration;var f=extract(audioBuf);var human=detectHuman(audioBuf,f,dur)
+
+    // ── Signal quality gate ──
+    // Reject: silence / environment noise / non-vocal sounds
+    // Cat vocalizations have: RMS>0.008, peakFreq in cat range, some periodicity
+    var sigReasons=[];
+    if(f.rms<0.008) sigReasons.push('声音太轻（可能是环境噪音）');
+    if(f.rms<0.02 && f.peakFreq<80 && f.peakFreq>10) sigReasons.push('低沉持续声，不像猫叫');
+    if(f.rms<0.03 && f.loRatio<0.02 && f.zcr>0.25) sigReasons.push('像背景杂音，没有猫咪声音特征');
+    // White noise check: very low periodicity + moderate ZCR = environmental
+    if(f.loRatio<0.015 && f.zcr>0.18 && f.zcr<0.30 && f.peakFreq<300) sigReasons.push('缺乏周期性，不像动物叫声');
+    // Extremely short: click/tap noise
+    if(dur<0.08) sigReasons.push('声音太短，可能是碰撞声');
+
+    if(sigReasons.length>=2){
+      // Signal fails quality — show "not a cat" result
+      $('resultsArea').innerHTML='<div style="text-align:center;padding:20px"><div style="font-size:48px;margin-bottom:8px">🎧</div><div style="font-size:16px;font-weight:700;color:#ff8c52">没有检测到猫咪声音</div><div style="font-size:12px;color:#c9a0b0;margin-top:6px;line-height:1.8">'+sigReasons.map(function(r){return '· '+r}).join('<br>')+'</div><div style="font-size:11px;color:#c9a0b0;margin-top:8px">💡 试试靠近猫咪，在它叫的时候录音</div></div>';
+      $('micHint').textContent='点一下，开始听小猫说话~';$('saveBtn').style.display='none'
+      return
+    }
+
     var results=classify(f,dur)
     lastResult={features:f,results:results,timestamp:Date.now(),duration:dur,human:human}
     showResults(results,human,f)
     $('micHint').textContent='点一下，开始听小猫说话~';$('saveBtn').style.display='inline-block'
 
     // ── DeepSeek AI enhancement ──
-    var apiKey=getDSKey();
+    var apiKey=getAIKey();var aiProvider=getAIProvider();
     if(apiKey && !human.isHuman && results.callType){
       // Check cache (same features within 30s → reuse)
       var cacheKey=Math.round(f.peakFreq/10)+'_'+Math.round(f.zcr*100)+'_'+Math.round(f.contour*100);
       var cached=_dsCache[cacheKey];
       if(cached && (Date.now()-cached.t)<30000){
-        showDeepSeekResult(cached.r, results);
+        showAIResult(cached.r, results);
         return
       }
 
@@ -652,14 +666,14 @@ async function analyze(){
       var dsArea=$('resultsArea');
       dsArea.innerHTML+='<div id="dsPending" style="text-align:center;padding:8px;margin-top:6px;font-size:11px;color:#d4a0b0"><div class="spinner" style="width:20px;height:20px;border-width:3px;margin:0 auto 6px"></div>🤖 AI 正在分析中…</div>'
 
-      deepseekAnalyze(f, results, apiKey).then(function(aiResult){
+      aiAnalyze(f, results, apiKey, aiProvider).then(function(aiResult){
         // Remove pending indicator
         var pe=document.getElementById('dsPending');if(pe) pe.remove();
         _dsCache[cacheKey]={t:Date.now(),r:aiResult};
-        showDeepSeekResult(aiResult, results);
+        showAIResult(aiResult, results);
       }).catch(function(e){
         var pe=document.getElementById('dsPending');if(pe) pe.remove();
-        console.warn('DeepSeek API error:',e);
+        console.warn('AI API error:',e);
         // Show subtle error — don't interrupt user experience
         dsArea.innerHTML+='<div style="text-align:center;padding:4px;font-size:10px;color:#c9a0b0">🤖 AI分析暂时不可用 ('+(e.message||'').substring(0,40)+')</div>';
       });
@@ -781,7 +795,7 @@ $('confirmAdd').onclick=function(){var n=$('catNameInput').value.trim();if(!n){t
 $('catPhotoInput').onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){var img=new Image();img.onload=function(){var cvs=document.createElement('canvas'),mx=300,w=img.width,h=img.height;if(w>h){h=Math.round(h*mx/w);w=mx}else{w=Math.round(w*mx/h);h=mx}cvs.width=w;cvs.height=h;cvs.getContext('2d').drawImage(img,0,0,w,h);window._catPhotoData=cvs.toDataURL('image/jpeg',0.7);$('catPhotoPreview').innerHTML='<img src="'+window._catPhotoData+'">'};img.src=ev.target.result};r.readAsDataURL(f)}
 $('addCatModal').onclick=function(e){if(e.target===this)this.style.display='none'}
 $('detailModal').onclick=function(e){if(e.target===this)this.style.display='none'}
-openDB(function(){});initDSKey()
+openDB(function(){});initAIKey()
 renderBreedGrid()
 </script>
 </body>
