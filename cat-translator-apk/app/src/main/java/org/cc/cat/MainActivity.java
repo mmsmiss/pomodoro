@@ -14,14 +14,15 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.PermissionRequest;
 import android.webkit.ConsoleMessage;
 import android.util.Log;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -34,6 +35,9 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
+    private ServerSocket modelServer;
+    private Thread modelServerThread;
+    private int modelServerPort = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,6 +51,9 @@ public class MainActivity extends Activity {
         );
         getWindow().setStatusBarColor(0xffffb6c1);
         getWindow().setNavigationBarColor(0xffffd4de);
+
+        // Start embedded HTTP server to serve model files to JS fetch()
+        startModelServer();
 
         webView = new WebView(this);
         setContentView(webView);
@@ -62,42 +69,11 @@ public class MainActivity extends Activity {
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
         ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // Enable remote debugging (Chrome inspect)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
 
         webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                String url = request.getUrl().toString();
-                // Serve bundled model files via fake HTTPS URL so fetch() works
-                if (url.startsWith("http://127.0.0.1/model/")) {
-                    // Remove "http://127.0.0.1/model/" prefix, then prepend "model/"
-                    String assetPath = "model/" + url.substring("http://127.0.0.1/model/".length());
-                    try {
-                        InputStream is = getAssets().open(assetPath);
-                        String mime;
-                        String encoding;
-                        if (assetPath.endsWith(".json")) {
-                            mime = "application/json";
-                            encoding = "UTF-8";
-                        } else if (assetPath.endsWith(".bin")) {
-                            mime = "application/octet-stream";
-                            encoding = null;  // binary — MUST be null, never "UTF-8"
-                        } else {
-                            mime = "application/octet-stream";
-                            encoding = null;
-                        }
-                        Log.d(TAG, "Serving asset: " + assetPath + " (" + mime + ")");
-                        return new WebResourceResponse(mime, encoding, is);
-                    } catch (IOException e) {
-                        Log.w(TAG, "Asset not found: " + assetPath);
-                    }
-                }
-                return super.shouldInterceptRequest(view, request);
-            }
-
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 Log.e(TAG, "WebView error: " + errorCode + " - " + description);
@@ -157,13 +133,165 @@ public class MainActivity extends Activity {
         webView.setVerticalScrollBarEnabled(false);
         webView.setHorizontalScrollBarEnabled(false);
 
-        // Load HTML
-        webView.loadUrl("file:///android_asset/index.html");
-        Log.d(TAG, "Loading HTML from assets");
+        // Expose model server port via JS interface (works before page loads)
+        webView.addJavascriptInterface(new ModelServerBridge(modelServerPort), "ModelServer");
 
-        // Request permissions
+        webView.loadUrl("file:///android_asset/index.html");
+        Log.d(TAG, "Loading HTML from assets, model port=" + modelServerPort);
+
         requestRuntimePermissions();
     }
+
+    // ── Embedded HTTP model server ─────────────────────────────────────────
+    // Serves model/{model.json, *.bin} on a random local port.
+    // JS fetch() connects to a real TCP server — 100% reliable on all devices.
+
+    private void startModelServer() {
+        modelServerThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    modelServer = new ServerSocket(0); // random port
+                    modelServerPort = modelServer.getLocalPort();
+                    Log.d(TAG, "Model HTTP server started on port " + modelServerPort);
+
+                    while (!Thread.currentThread().isInterrupted()) {
+                        Socket client = modelServer.accept();
+                        try {
+                            handleModelRequest(client);
+                        } catch (Exception e) {
+                            Log.w(TAG, "Error handling model request: " + e.getMessage());
+                        } finally {
+                            try { client.close(); } catch (Exception ignored) {}
+                        }
+                    }
+                } catch (IOException e) {
+                    Log.e(TAG, "Model server error: " + e.getMessage());
+                }
+            }
+        }, "ModelHttpServer");
+        modelServerThread.setDaemon(true);
+        modelServerThread.start();
+
+        // Wait up to 2 seconds for port to be assigned
+        long deadline = System.currentTimeMillis() + 2000;
+        while (modelServerPort == 0 && System.currentTimeMillis() < deadline) {
+            try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+        }
+        if (modelServerPort == 0) {
+            Log.e(TAG, "Model server failed to bind within timeout");
+        }
+    }
+
+    private void handleModelRequest(Socket client) throws IOException {
+        InputStream in = client.getInputStream();
+        OutputStream out = client.getOutputStream();
+
+        // Read first line of HTTP request (raw bytes, no BufferedReader for binary safety)
+        StringBuilder line = new StringBuilder();
+        int b;
+        while ((b = in.read()) != -1 && b != '\r' && b != '\n') {
+            line.append((char) b);
+        }
+        // Consume rest of headers (until \r\n\r\n)
+        int consecutiveNewlines = 0;
+        while (true) {
+            b = in.read();
+            if (b == -1) break;
+            if (b == '\n') {
+                consecutiveNewlines++;
+                if (consecutiveNewlines >= 2) break; // headers end
+            } else if (b != '\r') {
+                consecutiveNewlines = 0;
+            }
+        }
+
+        String firstLine = line.toString();
+        Log.d(TAG, "HTTP: " + firstLine);
+
+        // Parse: GET /model/model.json HTTP/1.1
+        String path = "/";
+        int sp1 = firstLine.indexOf(' ');
+        int sp2 = firstLine.indexOf(' ', sp1 + 1);
+        if (sp1 >= 0 && sp2 > sp1) {
+            path = firstLine.substring(sp1 + 1, sp2);
+        }
+
+        // Security: only serve files under model/
+        if (!path.startsWith("/model/")) {
+            String body = "Not Found";
+            byte[] resp = ("HTTP/1.0 404 Not Found\r\nContent-Length: " + body.length() + "\r\n\r\n" + body).getBytes();
+            out.write(resp);
+            out.flush();
+            return;
+        }
+
+        // Map to assets path: /model/foo.bar → model/foo.bar
+        String assetPath = path.substring(1); // remove leading /
+
+        try {
+            InputStream assetStream = getAssets().open(assetPath);
+            byte[] data = readAllBytes(assetStream);
+            assetStream.close();
+
+            // Determine content type
+            String contentType;
+            if (assetPath.endsWith(".json")) {
+                contentType = "application/json";
+            } else if (assetPath.endsWith(".bin")) {
+                contentType = "application/octet-stream";
+            } else {
+                contentType = "application/octet-stream";
+            }
+
+            Log.d(TAG, "Serving: " + assetPath + " (" + data.length + " bytes, " + contentType + ")");
+
+            // Write minimal HTTP response
+            String header = "HTTP/1.0 200 OK\r\n" +
+                "Content-Type: " + contentType + "\r\n" +
+                "Content-Length: " + data.length + "\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "Connection: close\r\n" +
+                "\r\n";
+            out.write(header.getBytes("UTF-8"));
+            out.write(data);
+            out.flush();
+
+        } catch (IOException e) {
+            Log.w(TAG, "Asset not found: " + assetPath);
+            String body = "Not Found";
+            byte[] resp = ("HTTP/1.0 404 Not Found\r\nContent-Length: " + body.length() + "\r\n\r\n" + body).getBytes();
+            out.write(resp);
+            out.flush();
+        }
+    }
+
+    private byte[] readAllBytes(InputStream is) throws IOException {
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int n;
+        while ((n = is.read(chunk)) != -1) {
+            buffer.write(chunk, 0, n);
+        }
+        return buffer.toByteArray();
+    }
+
+    private void stopModelServer() {
+        if (modelServer != null) {
+            try {
+                modelServer.close();
+            } catch (IOException e) {
+                Log.w(TAG, "Error closing model server: " + e.getMessage());
+            }
+            modelServer = null;
+        }
+        if (modelServerThread != null) {
+            modelServerThread.interrupt();
+            modelServerThread = null;
+        }
+    }
+
+    // ── Permissions & lifecycle ───────────────────────────────────────────
 
     private void requestRuntimePermissions() {
         if (Build.VERSION.SDK_INT < 23) return;
@@ -249,9 +377,23 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        stopModelServer();
         if (webView != null) {
             webView.destroy();
         }
         super.onDestroy();
+    }
+
+    // ── JS bridge: exposes model server port to JavaScript ─────────────────
+
+    public static class ModelServerBridge {
+        private final int port;
+        ModelServerBridge(int port) { this.port = port; }
+
+        @android.webkit.JavascriptInterface
+        public int getPort() { return port; }
+
+        @android.webkit.JavascriptInterface
+        public String getModelUrl() { return "http://127.0.0.1:" + port + "/model/"; }
     }
 }
