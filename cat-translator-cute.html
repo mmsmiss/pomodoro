@@ -349,6 +349,205 @@ var EMOTIONS=[
    contour:'flat',harm:true,rep:true,e:'high',purr:false}
 ];
 
+var CAT_BREEDS;  // forward declaration — defined below
+
+// ── Visual breed profiles (colors from HSV, patterns from edge density) ──
+// Each breed: expected_dominant_colors[], fur_type, common_pattern
+var BREED_VISUAL={
+  '橘猫':        {colors:['orange'],           fur:'short', pattern:'tabby'},
+  '黑猫':        {colors:['black'],            fur:'short', pattern:'solid'},
+  '奶牛猫':      {colors:['black','white'],    fur:'short', pattern:'bicolor'},
+  '三花猫':      {colors:['orange','black','white'], fur:'short', pattern:'calico'},
+  '白猫':        {colors:['white'],            fur:'short', pattern:'solid'},
+  '灰猫':        {colors:['grey'],             fur:'short', pattern:'solid'},
+  '暹罗猫':      {colors:['cream','brown'],    fur:'short', pattern:'colorpoint'},
+  '英短':        {colors:['grey','blue'],      fur:'short', pattern:'solid'},
+  '美短':        {colors:['grey','brown'],     fur:'short', pattern:'tabby'},
+  '波斯猫':      {colors:['white','cream','grey'], fur:'long', pattern:'solid'},
+  '布偶猫':      {colors:['cream','white','brown'], fur:'long', pattern:'colorpoint'},
+  '缅因猫':      {colors:['brown','grey','orange'], fur:'long', pattern:'tabby'},
+  '孟加拉猫':    {colors:['orange','brown'],   fur:'short', pattern:'spotted'},
+  '斯芬克斯猫':  {colors:['pink','grey'],      fur:'hairless', pattern:'solid'},
+  '俄罗斯蓝猫':  {colors:['grey','blue'],      fur:'short', pattern:'solid'},
+  '苏格兰折耳':  {colors:['grey','white','cream'], fur:'short', pattern:'solid'},
+  '挪威森林猫':  {colors:['brown','grey','white'], fur:'long', pattern:'tabby'},
+  '阿比西尼亚猫':{colors:['orange','brown'],   fur:'short', pattern:'ticked'},
+  '东方短毛猫':  {colors:['brown','black','white'], fur:'short', pattern:'solid'},
+  '德文卷毛猫':  {colors:['grey','white','brown'], fur:'short', pattern:'solid'},
+  '土耳其梵猫':  {colors:['white','orange'],   fur:'medium', pattern:'bicolor'},
+  '中华田园猫':  {colors:['orange','black','white','grey','brown'], fur:'short', pattern:'varied'}
+};
+
+// ── Image color analysis (from canvas pixels) ──
+// Downsamples img to save compute, returns dominant color histogram
+function analyzeColors(img){
+  var cvs=document.createElement('canvas'),w=56,h=56;
+  cvs.width=w;cvs.height=h;
+  var ctx=cvs.getContext('2d');
+  ctx.drawImage(img,0,0,w,h);
+  var data=ctx.getImageData(0,0,w,h).data;
+  var hist={orange:0,black:0,white:0,grey:0,brown:0,cream:0,other:0};
+  for(var i=0;i<data.length;i+=4){
+    var r=data[i],g=data[i+1],b=data[i+2];
+    // Fast HSV approximation
+    var mx=Math.max(r,g,b),mn=Math.min(r,g,b),s=mx===0?0:(mx-mn)/mx;
+    var h=0;
+    if(mx===mn) h=0;
+    else if(mx===r) h=((g-b)/(mx-mn))*60;
+    else if(mx===g) h=(2+(b-r)/(mx-mn))*60;
+    else h=(4+(r-g)/(mx-mn))*60;
+    if(h<0) h+=360;
+    var v=mx/255;
+    // Classify pixel
+    if(v<0.12) hist.black++;
+    else if(v>0.88 && s<0.10) hist.white++;
+    else if(s<0.15 && v>0.3 && v<0.8) hist.grey++;
+    else if(h>=10&&h<40 && s>0.3) hist.orange++;
+    else if(h>=15&&h<45 && s>0.15 && v>0.5) hist.brown++;
+    else if(h<10||h>340) hist.orange++;
+    else if(h>=15&&h<50 && v>0.4) hist.brown++;
+    else if(v>0.55 && s<0.25) hist.cream++;
+    else hist.other++;
+  }
+  var total=data.length/4;
+  // Normalize to percentages, find dominant colors
+  var scores={};
+  for(var k in hist) scores[k]=Math.round(hist[k]/total*100);
+  // Top 3 dominant colors (excluding 'other')
+  var ranked=Object.keys(scores).filter(function(k){return k!=='other'})
+    .map(function(k){return{name:k,pct:scores[k]}})
+    .sort(function(a,b){return b.pct-a.pct});
+  var dominant=ranked.slice(0,3).filter(function(c){return c.pct>=10})
+    .map(function(c){return c.name});
+  if(dominant.length===0) dominant=['varied'];
+  return {scores:scores,dominant:dominant};
+}
+
+// ── Simple fur texture estimation (edge density proxy for long vs short hair) ──
+function analyzeFur(img){
+  var cvs=document.createElement('canvas'),w=112,h=112;
+  cvs.width=w;cvs.height=h;
+  var ctx=cvs.getContext('2d');
+  ctx.drawImage(img,0,0,w,h);
+  var gray=ctx.getImageData(0,0,w,h).data;
+  // Horizontal + vertical gradient magnitude (Sobel approximation)
+  var edgeCount=0,totalPx=0;
+  for(var y=1;y<h-1;y++){
+    for(var x=1;x<w-1;x++){
+      var idx=(y*w+x)*4;
+      var gx=gray[idx-4]-gray[idx+4]; // horizontal grad (approx)
+      var gy=gray[idx-w*4]-gray[idx+w*4]; // vertical grad (approx)
+      var mag=Math.abs(gx)+Math.abs(gy);
+      if(mag>40) edgeCount++;
+      totalPx++;
+    }
+  }
+  var edgeRatio=edgeCount/totalPx;
+  // edgeRatio<0.06 → smooth/hairless (Sphynx)
+  // edgeRatio 0.06-0.15 → short/medium hair
+  // edgeRatio>0.15 → long/dense fur (Persian, Maine Coon, Norwegian Forest)
+  if(edgeRatio<0.06) return 'hairless';
+  if(edgeRatio<0.12) return 'short';
+  if(edgeRatio<0.18) return 'medium';
+  return 'long';
+}
+
+// ── Pattern type detection ──
+function detectPattern(img,colorInfo){
+  // Use color distribution to infer pattern
+  // Solid: one color > 60%
+  // Bicolor: two colors each > 25%
+  // Calico: three colors each > 15%
+  // Tabby: moderate colors + moderate edge density (looks striped)
+  // Colorpoint: body light + extremities dark (not detectable at this resolution)
+  var sc=colorInfo.scores;
+  var topTwo=0;for(var i=0;i<Math.min(2,Object.keys(sc).length);i++){
+    topTwo+=(Object.values(sc).sort(function(a,b){return b-a})[i]||0)};
+  if(sc.black>60||sc.white>60||sc.orange>55||sc.grey>55||sc.brown>50) return 'solid';
+  if(topTwo>75 && Object.values(sc).filter(function(v){return v>15}).length===2) return 'bicolor';
+  if(Object.values(sc).filter(function(v){return v>15}).length>=3) return 'calico';
+  return 'varied';
+}
+
+// ── Match breed by combining: ImageNet signal + color + fur texture ──
+function matchBreeds(img,imagenetPreds,allItems){
+  var colors=analyzeColors(img);
+  var fur=analyzeFur(img);
+  var pattern=detectPattern(img,colors);
+
+  // Compute match score for each breed
+  var results=[];
+  for(var i=0;i<CAT_BREEDS.length;i++){
+    var b=CAT_BREEDS[i],vp=BREED_VISUAL[b.name];
+    if(!vp) continue;
+
+    var sc=0,w=0;
+
+    // Signal 1: ImageNet score (weight 3.0)
+    var imgNetScore=0;
+    for(var j=0;j<imagenetPreds.length;j++){
+      var pred=imagenetPreds[j];
+      // Match by breed name substring
+      if(b.name.indexOf(pred.name)>=0 || pred.name.indexOf(b.name)>=0 ||
+         (pred.name.length>=2 && b.name.indexOf(pred.name.substring(0,2))>=0)){
+        imgNetScore=pred.prob/100;
+        break;
+      }
+    }
+    if(imgNetScore===0){
+      // Check if any ImageNet cat class loosely overlaps
+      var catClassMap={
+        '橘猫':['虎斑猫','橘猫','虎猫'],'黑猫':['黑猫'],'奶牛猫':['虎斑猫'],
+        '暹罗猫':['暹罗猫'],'波斯猫':['波斯猫'],'英短':['虎斑猫'],
+        '美短':['虎斑猫'],'缅因猫':['缅因猫'],'孟加拉猫':['孟加拉猫'],
+        '布偶猫':['虎斑猫','波斯猫'],'俄罗斯蓝猫':['灰猫'],'三花猫':['虎斑猫'],
+        '斯芬克斯猫':['斯芬克斯猫'],'苏格兰折耳':['虎斑猫'],
+        '挪威森林猫':['缅因猫','虎斑猫'],'阿比西尼亚猫':['虎斑猫'],
+        '东方短毛猫':['暹罗猫'],'德文卷毛猫':['虎斑猫'],
+        '土耳其梵猫':['虎斑猫'],'中华田园猫':['虎斑猫','橘猫','黑猫']
+      };
+      var aliases=catClassMap[b.name]||[];
+      for(var k=0;k<aliases.length;k++){
+        for(var l=0;l<imagenetPreds.length;l++){
+          if(imagenetPreds[l].name.indexOf(aliases[k])>=0){
+            imgNetScore=imagenetPreds[l].prob/100*0.7; // 0.7× penalty for alias match
+            break;
+          }
+        }
+        if(imgNetScore>0) break;
+      }
+    }
+    sc+=imgNetScore*3.0;w+=3.0;
+
+    // Signal 2: Color match (weight 4.5)
+    var colorScore=0;
+    for(var c=0;c<colors.dominant.length;c++){
+      if(vp.colors.indexOf(colors.dominant[c])>=0) colorScore+=1;
+    }
+    colorScore=Math.min(1, colorScore/Math.max(1,Math.min(vp.colors.length,2)));
+    sc+=colorScore*4.5;w+=4.5;
+
+    // Signal 3: Fur texture match (weight 2.0)
+    var furScore=vp.fur===fur?1:(vp.fur==='medium'&&fur==='short'?0.6:0);
+    sc+=furScore*2.0;w+=2.0;
+
+    // Signal 4: Pattern match (weight 1.5)
+    var patternScore=(vp.pattern===pattern||vp.pattern==='varied'||pattern==='varied')?0.7:
+      (vp.pattern==='tabby'&&pattern==='solid'?0.3:0);
+    if(vp.pattern==='colorpoint' && fur!=='long') patternScore=0.4; // colorpoint specific
+    sc+=patternScore*1.5;w+=1.5;
+
+    results.push({
+      breed:b,rawScore:w>0?sc/w:0,
+      diag:{imgNet:(imgNetScore*100).toFixed(0),color:(colorScore*100).toFixed(0),
+            fur:furScore,furType:fur,pattern:patternScore}
+    });
+  }
+
+  results.sort(function(a,b){return b.rawScore-a.rawScore});
+  return results;
+}
+
 var CAT_BREEDS=[
   {name:'中华田园猫',traits:'聪明、适应力棒',vocal:'声音多变'},
   {name:'暹罗猫',traits:'爱说话、粘人',vocal:'又响又亮'},
@@ -579,7 +778,32 @@ function initAIKey(){
   });
 }
 
-// ── AI-enhanced analysis (DeepSeek / Qwen / ...) ──
+// ── AI-enhanced analysis (DeepSeek / Qwen) ──
+// With 12s timeout + 1 retry, socket-error safe, silent on failure
+async function _aiFetch(endpoint, apiKey, model, prompt, retries){
+  if(!retries) retries=0;
+  var ctrl=new AbortController();
+  var timer=setTimeout(function(){ctrl.abort()},12000);
+  try{
+    var resp=await fetch(endpoint,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+      body:JSON.stringify({model:model,messages:[{role:'user',content:prompt}],temperature:0.6,max_tokens:200}),
+      signal:ctrl.signal
+    });
+    clearTimeout(timer);
+    if(!resp.ok){var et=await resp.text();throw new Error('API '+resp.status+':'+et.substring(0,60))}
+    return await resp.json();
+  }catch(e){
+    clearTimeout(timer);
+    if(retries<1 && (e.name==='AbortError'||(e.message||'').indexOf('socket')>=0||(e.message||'').indexOf('network')>=0)){
+      await new Promise(function(r){setTimeout(r,1500)});
+      return _aiFetch(endpoint, apiKey, model, prompt, retries+1);
+    }
+    throw e;
+  }
+}
+
 async function aiAnalyze(features,localResults,apiKey,provider){
   var durMs=Math.round(features.n/features.sr*1000);
   var ct=features.contour>0.06?'上升':(features.contour<-0.06?'下降':'平稳');
@@ -596,18 +820,7 @@ async function aiAnalyze(features,localResults,apiKey,provider){
     model='deepseek-chat';
   }
 
-  var resp=await fetch(endpoint,{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-    body:JSON.stringify({model:model,messages:[{role:'user',content:prompt}],temperature:0.6,max_tokens:200})
-  });
-
-  if(!resp.ok){
-    var errText=await resp.text();
-    throw new Error('API '+resp.status+': '+errText.substring(0,80));
-  }
-
-  var data=await resp.json();
+  var data=await _aiFetch(endpoint, apiKey, model, prompt, 0);
   var content=data.choices[0].message.content;
   var jsonMatch=content.match(/\{[^}]*\}/);
   if(!jsonMatch) throw new Error('无法解析AI回复');
@@ -675,7 +888,7 @@ async function analyze(){
         var pe=document.getElementById('dsPending');if(pe) pe.remove();
         console.warn('AI API error:',e);
         // Show subtle error — don't interrupt user experience
-        dsArea.innerHTML+='<div style="text-align:center;padding:4px;font-size:10px;color:#c9a0b0">🤖 AI分析暂时不可用 ('+(e.message||'').substring(0,40)+')</div>';
+        dsArea.innerHTML+='<div style="text-align:center;padding:4px;font-size:10px;color:#c9a0b0">🤖 AI分析暂时无响应，已显示本地结果</div>';
       });
     }
   }catch(e){console.error(e);$('micHint').textContent='分析失败啦，再试一次~'}
@@ -738,22 +951,54 @@ function loadModel(cb){if(mNet){cb(mNet);return}
     tf.loadGraphModel('https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e2){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">⚠️ 模型加载失败<br><span style="font-size:12px">请完全退出App后重新打开再试试~</span></div>';console.error(e2)})})}
 function analyzeBreed(){
   var img=$('photoPreview').querySelector('img');if(!img)return
-  $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在识别…</div>'
+  $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在识别猫咪品种…</div>'
   loadTF(function(){loadModel(function(model){
     var t=tf.tidy(function(){return tf.browser.fromPixels(img).resizeBilinear([224,224]).expandDims(0).toFloat().div(127.5).sub(1)})
     model.predict(t).data().then(function(preds){t.dispose()
-      var items=[];for(var i=0;i<preds.length;i++)items.push({idx:i,prob:preds[i]});items.sort(function(a,b){return b.prob-a.prob})
+      var items=[];for(var i=0;i<preds.length;i++)items.push({idx:i,prob:preds[i]});
+      items.sort(function(a,b){return b.prob-a.prob});
+
+      // ImageNet cat class mapping (11 of 1000 classes)
       var catIds={281:1,282:1,283:1,284:1,285:1,286:1,287:1,288:1,289:1,290:1,291:1}
-      var catLabels={281:'虎斑猫/橘猫',282:'虎猫',283:'波斯猫',284:'暹罗猫',285:'埃及猫',286:'美洲狮',287:'猞猁',288:'狮子',289:'猎豹',290:'雪豹',291:'缅因猫'}
-      var top10=items.slice(0,10);var isCat=top10.some(function(x){return catIds[x.idx]})
-      var matches=top10.filter(function(x){return catIds[x.idx]}).map(function(x){return{name:catLabels[x.idx]||'猫',prob:Math.round(x.prob*100)}})
-      if(!isCat||(matches.length===0&&top10[0].prob>0.20)){$('breedResults').innerHTML='<div style="text-align:center;padding:14px"><div style="font-size:40px;margin-bottom:6px">🤔</div><div style="font-size:15px;font-weight:700;color:#ff8c52">这不是小猫咪的照片哦~</div><div style="font-size:12px;color:#d4a0b0;margin-top:4px">请给小猫拍张照吧！</div></div>';return}
-      var top=matches.slice(0,3);var tot=top.reduce(function(s,r){return s+r.prob},0);if(tot===0)tot=3;top.forEach(function(r){r.probability=Math.round(r.prob/tot*100)})
-      $('breedResults').innerHTML='<div style="margin-top:8px;font-size:13px;color:#d4a0b0;font-weight:700;text-align:center">📸 这只小猫是…</div>'+
-        top.map(function(r){var db=CAT_BREEDS.find(function(b){return r.name.indexOf(b.name)>=0||(b.name&&r.name.indexOf(b.name.substring(0,2))>=0)})
-        return'<div class="result-item"><div style="min-width:52px;height:52px;border-radius:12px;overflow:hidden;flex-shrink:0;background:#ffe4e1">'+breedImg(db?db.name:'猫')+'</div>'+
-        '<div class="result-info"><div class="result-name">'+(db?db.name:r.name)+'</div><div class="result-desc">'+(db?'性格:'+db.traits+' | 声音:'+db.vocal:'小百科里还没有这个品种')+'</div>'+
-        '<div class="result-bar-bg"><div class="result-bar-fg" style="width:'+r.probability+'%;background:#ff8a9e"></div></div></div><div class="result-pct" style="color:#ff6b8a">'+r.probability+'%</div></div>'}).join('')})})})}
+      var catLabels={281:'虎斑猫',282:'虎猫',283:'波斯猫',284:'暹罗猫',285:'埃及猫',286:'美洲狮',287:'猞猁',288:'狮子',289:'猎豹',290:'雪豹',291:'缅因猫'}
+      var top10=items.slice(0,10);
+      var isCat=top10.some(function(x){return catIds[x.idx]});
+
+      if(!isCat){
+        $('breedResults').innerHTML='<div style="text-align:center;padding:14px"><div style="font-size:40px;margin-bottom:6px">🤔</div><div style="font-size:15px;font-weight:700;color:#ff8c52">没有识别到猫咪</div><div style="font-size:12px;color:#c9a0b0;margin-top:4px">请拍一张清晰的猫咪正面照片~</div></div>';return
+      }
+
+      // Build ImageNet cat predictions
+      var imgnetResults=top10.filter(function(x){return catIds[x.idx]})
+        .map(function(x){return{name:catLabels[x.idx]||'猫',prob:Math.round(x.prob*100)}});
+
+      // ── Hybrid breed matching: ImageNet + visual features ──
+      var allBreeds=matchBreeds(img,imgnetResults,items);
+      var top3=allBreeds.slice(0,5);
+
+      // Show top 3 breeds (filter out those with score 0 or very low)
+      var show=top3.filter(function(b){return b.rawScore>0.15}).slice(0,3);
+      if(show.length===0) show=top3.slice(0,1); // at least show something
+
+      var total=show.reduce(function(s,b){return s+b.rawScore},0);
+      if(total===0) total=1;
+
+      var diagInfo='';
+      if(show.length>0){
+        var d=show[0].diag;
+        diagInfo='<div style="margin-top:4px;font-size:9px;color:#c9a0b0;text-align:center">📸 图片分析: 毛色'+d.color+'% · 毛发'+d.furType+' · AI'+d.imgNet+'%</div>';
+      }
+
+      $('breedResults').innerHTML='<div style="margin-top:8px;font-size:13px;color:#d4a0b0;font-weight:700;text-align:center">📸 这只小猫可能是…</div>'+
+        show.map(function(b){
+          var prob=Math.round(b.rawScore/total*100);
+          return'<div class="result-item"><div style="min-width:52px;height:52px;border-radius:12px;overflow:hidden;flex-shrink:0;background:#ffe4e1">'+breedImg(b.breed.name)+'</div>'+
+          '<div class="result-info"><div class="result-name">'+b.breed.name+'</div><div class="result-desc">性格:'+b.breed.traits+' | 声音:'+b.breed.vocal+'</div>'+
+          '<div class="result-bar-bg"><div class="result-bar-fg" style="width:'+prob+'%;background:#7ec8a0"></div></div></div><div class="result-pct" style="color:#7ec8a0">'+prob+'%</div></div>'
+        }).join('')+
+        diagInfo+
+        '<div style="margin-top:8px;font-size:10px;color:#c9a0b0;text-align:center">⚠️ 基于照片视觉特征的猜测，不是品种鉴定</div>'
+    })})})}
 
 // Camera
 var _camStream=null;
