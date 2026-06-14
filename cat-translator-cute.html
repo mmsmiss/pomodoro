@@ -563,7 +563,7 @@ function loadTF(cb){if(tfReady){cb();return}
   tryNext()}
 function loadModel(cb){if(mNet){cb(mNet);return}
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在学习识别猫咪品种…</div>'
-  tf.loadGraphModel('model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(){
+  tf.loadGraphModel('https://appassets.androidplatform.net/model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(){
     $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">下载识别模型(~5MB)</div>'
     tf.loadGraphModel('https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">下载失败，检查网络再试试~</div>';console.error(e)})})}
 

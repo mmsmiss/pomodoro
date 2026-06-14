@@ -14,10 +14,14 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.PermissionRequest;
 import android.webkit.ConsoleMessage;
 import android.util.Log;
+import java.io.IOException;
+import java.io.InputStream;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -64,6 +68,27 @@ public class MainActivity extends Activity {
         }
 
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                // Intercept local asset URLs so fetch() can load bundled model files
+                // WebView's fetch() blocks file:// URLs, so we use https://appassets.androidplatform.net/
+                if (url.startsWith("https://appassets.androidplatform.net/")) {
+                    String assetPath = url.substring("https://appassets.androidplatform.net/".length());
+                    try {
+                        InputStream is = getAssets().open(assetPath);
+                        String mime = assetPath.endsWith(".json") ? "application/json"
+                                   : assetPath.endsWith(".bin") ? "application/octet-stream"
+                                   : "text/plain";
+                        Log.d(TAG, "Serving asset: " + assetPath + " (" + mime + ")");
+                        return new WebResourceResponse(mime, "UTF-8", is);
+                    } catch (IOException e) {
+                        Log.w(TAG, "Asset not found: " + assetPath);
+                    }
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 Log.e(TAG, "WebView error: " + errorCode + " - " + description);
