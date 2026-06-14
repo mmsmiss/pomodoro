@@ -228,10 +228,22 @@ input[type=file]{display:none}
       🤫 关掉电视和音乐<br>
       ⏱️ 录 1-3 秒就够了<br>
       📊 会告诉你 3 种最可能的情绪
-    </div>
-  </div>
+	    </div>
+	  </div>
 
-  <!-- 📸 品种 -->
+	  <!-- 🤖 AI 设置（听声音和看品种共用） -->
+	  <div class="card" style="font-size:13px;color:#c08497;line-height:2;margin:12px 0">
+	    <strong>🤖 AI 增强（可选，提升准确率）</strong><br>
+	    <select id="aiProvider" style="width:100%;padding:8px;border-radius:10px;border:2px solid #ffd4de;background:#fffafc;color:#5d3a4a;font-size:11px;margin:4px 0;outline:none">
+	      <option value="deepseek">DeepSeek（免费 10M tokens）</option>
+	      <option value="qwen">通义千问（每月免费 2M tokens）</option>
+	    </select>
+	    <input type="password" id="dsApiKey" placeholder="输入 API Key (sk-...) 不填则只用本地分析" style="width:100%;padding:8px;border-radius:10px;border:2px solid #ffd4de;background:#fffafc;color:#5d3a4a;font-size:11px;margin:4px 0;outline:none">
+	    <div style="font-size:9px;color:#c9a0b0">🔑 <a href="https://platform.deepseek.com/api_keys" target="_blank" style="color:#ff8a9e">DeepSeek Key</a> · <a href="https://dashscope.console.aliyun.com/apiKey" target="_blank" style="color:#ff8a9e">千问 Key</a></div>
+	    <div id="dsStatus" style="font-size:10px;color:#7ec8a0;margin-top:3px;display:none"></div>
+	  </div>
+
+	  <!-- 📸 品种 -->
   <div class="panel" id="panel-breed">
     <div class="card">
       <h3>📸 看看小猫是什么品种</h3>
@@ -751,31 +763,41 @@ function findHumanF0(samples,sr){
 // Falls back gracefully if offline, no key, or API error
 var _dsCache={};
 function getAIKey(){
-  var k=$('dsApiKey').value.trim();
+  var el=$('dsApiKey');if(!el)return'';
+  var k=el.value.trim();
   if(!k) k=localStorage.getItem('ai_api_key')||'';
   return k;
 }
-function getAIProvider(){return $('aiProvider').value||'deepseek'}
-function saveAIKey(k){localStorage.setItem('ai_api_key',k);$('dsStatus').style.display='block';$('dsStatus').textContent='✅ API Key 已保存'}
+function getAIProvider(){
+  var el=$('aiProvider');return el?el.value||'deepseek':'deepseek';
+}
+function saveAIKey(k){
+  localStorage.setItem('ai_api_key',k);
+  var st=$('dsStatus');if(st){st.style.display='block';st.textContent='✅ API Key 已保存'}
+}
 
 // Auto-load saved key, set up save-on-input, update links on provider change
 function initAIKey(){
   var saved=getAIKey();
-  if(saved){$('dsApiKey').value=saved;$('dsStatus').style.display='block';$('dsStatus').textContent='✅ 已加载保存的 API Key'}
-  $('dsApiKey').addEventListener('input',function(){
-    var v=this.value.trim();
-    if(v.length>20) saveAIKey(v);
-    else if(!v) $('dsStatus').style.display='none';
-  });
-  $('dsApiKey').addEventListener('blur',function(){
-    var v=this.value.trim();
-    if(v.length>20) saveAIKey(v);
-  });
-  $('aiProvider').addEventListener('change',function(){
+  var dsEl=$('dsApiKey');
+  if(saved && dsEl){dsEl.value=saved;var st=$('dsStatus');if(st){st.style.display='block';st.textContent='✅ 已加载保存的 API Key'}}
+  if(dsEl){
+    dsEl.addEventListener('input',function(){
+      var v=this.value.trim();
+      if(v.length>20) saveAIKey(v);
+      else if(!v){var s=$('dsStatus');if(s)s.style.display='none'}
+    });
+    dsEl.addEventListener('blur',function(){
+      var v=this.value.trim();
+      if(v.length>20) saveAIKey(v);
+    });
+  }
+  var apEl=$('aiProvider');
+  if(apEl){apEl.addEventListener('change',function(){
     var p=this.value;
     $('aiLink1').style.display=p==='deepseek'?'':'none';
     $('aiLink2').style.display=p==='qwen'?'':'none';
-  });
+  });}
 }
 
 // ── AI-enhanced analysis (DeepSeek / Qwen) ──
