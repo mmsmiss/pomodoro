@@ -72,8 +72,8 @@ public class MainActivity extends Activity {
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
                 // Serve bundled model files via fake HTTPS URL so fetch() works
-                if (url.startsWith("https://appassets.androidplatform.net/")) {
-                    String assetPath = url.substring("https://appassets.androidplatform.net/".length());
+                if (url.startsWith("http://127.0.0.1/model/")) {
+                    String assetPath = url.substring("http://127.0.0.1/model/".length());
                     try {
                         InputStream is = getAssets().open(assetPath);
                         String mime;

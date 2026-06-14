@@ -195,6 +195,7 @@ input[type=file]{display:none}
 /* video in modal */
 .modal video{width:100%;height:240px;object-fit:cover;border-radius:16px;background:#000;margin:4px 0}
 </style>
+<script src="tf.min.js"></script>
 </head>
 <body>
 
@@ -545,6 +546,93 @@ function findHumanF0(samples,sr){
   if(bestC<0.02)return 0;return Math.round(sr/(bestL*step));
 }
 
+// ── DeepSeek AI-enhanced emotion analysis ──────────────────────────
+// Uses DeepSeek free API to verify/refine the local acoustic analysis
+// Requires user-provided API key (stored in localStorage)
+// Falls back gracefully if offline, no key, or API error
+var _dsCache={};
+function getDSKey(){
+  var k=$('dsApiKey').value.trim();
+  if(!k) k=localStorage.getItem('ds_api_key')||'';
+  return k;
+}
+function saveDSKey(k){localStorage.setItem('ds_api_key',k);$('dsStatus').style.display='block';$('dsStatus').textContent='✅ API Key 已保存'}
+
+// Auto-load saved key and set up save-on-input
+function initDSKey(){
+  var saved=getDSKey();
+  if(saved){$('dsApiKey').value=saved;$('dsStatus').style.display='block';$('dsStatus').textContent='✅ 已加载保存的 API Key'}
+  $('dsApiKey').addEventListener('input',function(){
+    var v=this.value.trim();
+    if(v.startsWith('sk-')&&v.length>30) saveDSKey(v);
+    else if(!v) $('dsStatus').style.display='none';
+  });
+  // Also save on blur if valid
+  $('dsApiKey').addEventListener('blur',function(){
+    var v=this.value.trim();
+    if(v.startsWith('sk-')&&v.length>30) saveDSKey(v);
+  });
+}
+
+async function deepseekAnalyze(features,localResults,apiKey){
+  var durMs=Math.round(features.n/features.sr*1000);
+  var contourLabel=features.contour>0.06?'上升':(features.contour<-0.06?'下降':'平稳');
+
+  // Build a concise, data-rich prompt for emotion classification
+  var prompt='你是猫咪声学行为专家。请根据以下声学参数判断猫咪的情绪:
+'+
+    '声学参数:
+'+
+    '- 基频(F0): '+Math.round(features.peakFreq)+' Hz
+'+
+    '- 时长: '+durMs+' ms
+'+
+    '- 过零率: '+Math.round(features.zcr*100)+'%
+'+
+    '- 语调轮廓: '+contourLabel+' (值:'+Math.round(features.contour*100)+'%)
+'+
+    '- 周期性谐波比: '+Math.round(features.loRatio*100)+'%
+'+
+    '- 能量(RMS): '+(Math.round(features.rms*10000)/10000).toFixed(4)+'
+'+
+    '- 叫声类型: '+localResults.callType.label+'
+'+
+    '
+本地声学分析结果:
+'+
+    localResults.map(function(r){return '- '+r.emoji+' '+r.name+' '+r.probability+'%: '+r.desc}).join('
+')+
+    '
+请给出JSON(不要其他文字):
+{"emotion":"最可能的1-2个词","feeling":"猫咪想说什么(一句话,中文,适合小朋友)","why":"为什么这样判断(简短)","confidence":0-100}';
+
+  var resp=await fetch('https://api.deepseek.com/v1/chat/completions',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+    body:JSON.stringify({
+      model:'deepseek-chat',
+      messages:[{role:'user',content:prompt}],
+      temperature:0.6,
+      max_tokens:200
+    })
+  });
+
+  if(!resp.ok){
+    var errText=await resp.text();
+    throw new Error('API '+resp.status+': '+errText.substring(0,80));
+  }
+
+  var data=await resp.json();
+  var content=data.choices[0].message.content;
+
+  // Parse JSON from response (DeepSeek sometimes wraps in code blocks)
+  var jsonMatch=content.match(/{[^}]*}/);
+  if(!jsonMatch) throw new Error('无法解析AI回复');
+  return JSON.parse(jsonMatch[0]);
+}
+
+// ── Modified analyze() — calls DeepSeek after local analysis ──
+
 // Analyze
 async function analyze(){
   if(chunks.length===0){$('micHint').textContent='没录到声音哦~再试一次';return}
@@ -559,6 +647,34 @@ async function analyze(){
     lastResult={features:f,results:results,timestamp:Date.now(),duration:dur,human:human}
     showResults(results,human,f)
     $('micHint').textContent='点一下，开始听小猫说话~';$('saveBtn').style.display='inline-block'
+
+    // ── DeepSeek AI enhancement ──
+    var apiKey=getDSKey();
+    if(apiKey && !human.isHuman && results.callType){
+      // Check cache (same features within 30s → reuse)
+      var cacheKey=Math.round(f.peakFreq/10)+'_'+Math.round(f.zcr*100)+'_'+Math.round(f.contour*100);
+      var cached=_dsCache[cacheKey];
+      if(cached && (Date.now()-cached.t)<30000){
+        showDeepSeekResult(cached.r, results);
+        return
+      }
+
+      // Show "AI thinking" indicator
+      var dsArea=$('resultsArea');
+      dsArea.innerHTML+='<div id="dsPending" style="text-align:center;padding:8px;margin-top:6px;font-size:11px;color:#d4a0b0"><div class="spinner" style="width:20px;height:20px;border-width:3px;margin:0 auto 6px"></div>🤖 AI 正在分析中…</div>'
+
+      deepseekAnalyze(f, results, apiKey).then(function(aiResult){
+        // Remove pending indicator
+        var pe=document.getElementById('dsPending');if(pe) pe.remove();
+        _dsCache[cacheKey]={t:Date.now(),r:aiResult};
+        showDeepSeekResult(aiResult, results);
+      }).catch(function(e){
+        var pe=document.getElementById('dsPending');if(pe) pe.remove();
+        console.warn('DeepSeek API error:',e);
+        // Show subtle error — don't interrupt user experience
+        dsArea.innerHTML+='<div style="text-align:center;padding:4px;font-size:10px;color:#c9a0b0">🤖 AI分析暂时不可用 ('+(e.message||'').substring(0,40)+')</div>';
+      });
+    }
   }catch(e){console.error(e);$('micHint').textContent='分析失败啦，再试一次~'}
 }
 
@@ -587,16 +703,22 @@ function showResults(results,humanCheck,rawFeatures){
 
 // Breed (TF.js)
 var tfReady=false,mNet=null;
-var _tfCdnIdx=0;
-var _tfCdns=[
-  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js',
-  'https://unpkg.com/@tensorflow/tfjs@4.20.0/dist/tf.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.20.0/tf.min.js'
-];
+// Load TF.js: local bundle first (bundled in APK), CDN fallback for browser
 function loadTF(cb){if(tfReady){cb();return}
+  // In APK: tf is already defined from <script src="tf.min.js"> — skip loading
+  if(typeof tf!=='undefined' && typeof tf.loadGraphModel==='function'){
+    tfReady=true;cb();return
+  }
+  // Browser fallback: try CDNs
+  var _tfCdnIdx=0;
+  var _tfCdns=[
+    'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js',
+    'https://unpkg.com/@tensorflow/tfjs@4.20.0/dist/tf.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.20.0/tf.min.js'
+  ];
   function tryNext(){
     if(_tfCdnIdx>=_tfCdns.length){
-      $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">⚠️ 网络连接失败<br><span style="font-size:12px">请检查WiFi或流量，换个网络再试试~</span></div>';
+      $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">⚠️ TF.js 库加载失败<br><span style="font-size:12px">请检查网络连接</span></div>';
       return
     }
     var s=document.createElement('script');s.src=_tfCdns[_tfCdnIdx];_tfCdnIdx++;
@@ -607,10 +729,10 @@ function loadTF(cb){if(tfReady){cb();return}
 //             — in browser: CDN fallback
 function loadModel(cb){if(mNet){cb(mNet);return}
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在学习识别猫咪品种…</div>'
-  tf.loadGraphModel('https://appassets.androidplatform.net/model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e1){
+  tf.loadGraphModel('http://127.0.0.1/model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e1){
     console.warn('Intercepted load failed, trying CDN:',e1);
     $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">下载识别模型(~5MB)</div>'
-    tf.loadGraphModel('https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e2){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">⚠️ 下载失败<br><span style="font-size:12px">请检查WiFi或流量，换个网络再试试~</span></div>';console.error(e2)})})}
+    tf.loadGraphModel('https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e2){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">⚠️ 模型加载失败<br><span style="font-size:12px">请完全退出App后重新打开再试试~</span></div>';console.error(e2)})})}
 function analyzeBreed(){
   var img=$('photoPreview').querySelector('img');if(!img)return
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在识别…</div>'
@@ -670,7 +792,7 @@ $('confirmAdd').onclick=function(){var n=$('catNameInput').value.trim();if(!n){t
 $('catPhotoInput').onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){var img=new Image();img.onload=function(){var cvs=document.createElement('canvas'),mx=300,w=img.width,h=img.height;if(w>h){h=Math.round(h*mx/w);w=mx}else{w=Math.round(w*mx/h);h=mx}cvs.width=w;cvs.height=h;cvs.getContext('2d').drawImage(img,0,0,w,h);window._catPhotoData=cvs.toDataURL('image/jpeg',0.7);$('catPhotoPreview').innerHTML='<img src="'+window._catPhotoData+'">'};img.src=ev.target.result};r.readAsDataURL(f)}
 $('addCatModal').onclick=function(e){if(e.target===this)this.style.display='none'}
 $('detailModal').onclick=function(e){if(e.target===this)this.style.display='none'}
-openDB(function(){})
+openDB(function(){});initDSKey()
 renderBreedGrid()
 </script>
 </body>

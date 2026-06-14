@@ -82,10 +82,12 @@ jobs:
           ls -la
           du -sh .
 
-      - name: Copy HTML + model into assets
+      - name: Copy HTML + TF.js + model into assets
         run: |
           mkdir -p cat-translator-apk/app/src/main/assets
           cp cat-translator-cute.html cat-translator-apk/app/src/main/assets/index.html
+          curl -sSLO https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js
+          mv tf.min.js cat-translator-apk/app/src/main/assets/tf.min.js
           echo "=== Assets ==="
           ls -la cat-translator-apk/app/src/main/assets/
 
