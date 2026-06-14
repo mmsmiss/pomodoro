@@ -840,25 +840,41 @@ async function analyze(){
     var buf=await blob.arrayBuffer();var c=await ctx();var audioBuf=await c.decodeAudioData(buf)
     var dur=audioBuf.duration;var f=extract(audioBuf);var human=detectHuman(audioBuf,f,dur)
 
-    // ── Signal quality gate ──
-    // Reject: silence / environment noise / non-vocal sounds
-    // Cat vocalizations have: RMS>0.008, peakFreq in cat range, some periodicity
-    var sigReasons=[];
-    if(f.rms<0.008) sigReasons.push('声音太轻（可能是环境噪音）');
-    if(f.rms<0.02 && f.peakFreq<80 && f.peakFreq>10) sigReasons.push('低沉持续声，不像猫叫');
-    if(f.rms<0.03 && f.loRatio<0.02 && f.zcr>0.25) sigReasons.push('像背景杂音，没有猫咪声音特征');
-    // White noise check: very low periodicity + moderate ZCR = environmental
-    if(f.loRatio<0.015 && f.zcr>0.18 && f.zcr<0.30 && f.peakFreq<300) sigReasons.push('缺乏周期性，不像动物叫声');
-    // Extremely short: click/tap noise
-    if(dur<0.08) sigReasons.push('声音太短，可能是碰撞声');
+    // ── Two-step cat-check ──────────────────────────────────
+    // Step 1: Is this a cat vocalization at all?
+    var isCatSound=true, notCatReasons=[];
+    var catScore=0; // higher = more likely cat
 
-    if(sigReasons.length>=2){
-      // Signal fails quality — show "not a cat" result
-      $('resultsArea').innerHTML='<div style="text-align:center;padding:20px"><div style="font-size:48px;margin-bottom:8px">🎧</div><div style="font-size:16px;font-weight:700;color:#ff8c52">没有检测到猫咪声音</div><div style="font-size:12px;color:#c9a0b0;margin-top:6px;line-height:1.8">'+sigReasons.map(function(r){return '· '+r}).join('<br>')+'</div><div style="font-size:11px;color:#c9a0b0;margin-top:8px">💡 试试靠近猫咪，在它叫的时候录音</div></div>';
+    // Cat vocalizations span 60-8000Hz with harmonic structure
+    // F0 centered 250-750Hz for meows, 15-60Hz for purrs
+    if(f.peakFreq>=60 && f.peakFreq<=8000) catScore+=2;
+    if(f.peakFreq>=250 && f.peakFreq<=750) catScore+=2; // classic meow range
+    if(f.peakFreq>=15 && f.peakFreq<=60 && f.loRatio>0.25) catScore+=2; // purr
+    if(f.loRatio>0.02 && f.zcr<0.30) catScore+=2; // harmonic (vs noise)
+    if(dur>0.08 && dur<5) catScore+=1; // reasonable vocalization length
+    if(f.zcr<0.10) catScore+=1; // low ZCR = tonal (like a voice)
+
+    // Common false positives
+    if(f.rms<0.008) {catScore-=3;notCatReasons.push('音量极低，疑似环境底噪')}
+    if(f.rms<0.015 && f.loRatio<0.01 && f.zcr>0.22) {catScore-=3;notCatReasons.push('宽带噪声特征，不像动物发声')}
+    if(dur<0.06) {catScore-=3;notCatReasons.push('时长过短，疑似碰撞/点击声')}
+    if(f.peakFreq<30 && f.loRatio<0.05 && dur>1.5) {catScore-=2;notCatReasons.push('低频持续嗡声，可能是空调/风扇')}
+    if(f.rms>0.15 && f.peakFreq<40) {catScore-=2;notCatReasons.push('低频高能冲击声，可能是关门/掉落')}
+    if(f.zcr>0.35 && f.rms<0.04) {catScore-=2;notCatReasons.push('高频噪声，非生物发声')}
+
+    isCatSound=(catScore>=3 && f.peakFreq>20);
+
+    if(!isCatSound){
+      // Not a cat — show clear rejection with reasons
+      var reasonsList=[];
+      if(notCatReasons.length>0) reasonsList=notCatReasons;
+      else reasonsList.push('声学特征不符合猫咪发声模式');
+      $('resultsArea').innerHTML='<div style="text-align:center;padding:20px"><div style="font-size:48px;margin-bottom:8px">🔍</div><div style="font-size:16px;font-weight:700;color:#ff8c52">判断：这不是猫咪的声音</div><div style="font-size:12px;color:#c9a0b0;margin-top:10px;line-height:1.8">'+reasonsList.map(function(r){return '· '+r}).join('<br>')+'</div><div style="font-size:11px;color:#c9a0b0;margin-top:8px">💡 试试在猫咪叫的时候近距离录音</div></div>';
       $('micHint').textContent='点一下，开始听小猫说话~';$('saveBtn').style.display='none'
       return
     }
 
+    // Step 2: Cat confirmed → classify emotion
     var results=classify(f,dur)
     lastResult={features:f,results:results,timestamp:Date.now(),duration:dur,human:human}
     showResults(results,human,f)
@@ -905,7 +921,8 @@ function showResults(results,humanCheck,rawFeatures){
       (inds.length>0?inds.map(function(x){return '· '+x}).join('<br>'):'声音像人类在说话')+(humanCheck.confidence?'<br>人声可能性 '+humanCheck.confidence+'%':'')+'</div></div>';
   }else if(humanCheck){humanBanner='<div class="animal-confirm">✅ 这是小猫咪的声音哦~</div>';}
 
-  area.innerHTML='<div style="margin-top:8px;font-size:14px;color:#d4a0b0;font-weight:700;text-align:center">📊 小猫想要告诉你…</div>'+
+  area.innerHTML='<div style="margin-top:4px;font-size:12px;color:#7ec8a0;font-weight:700;text-align:center">✅ 判断：这是猫咪的声音</div>'+
+    '<div style="margin-top:6px;font-size:14px;color:#d4a0b0;font-weight:700;text-align:center">📊 小猫想要告诉你…</div>'+
     (results.callType?'<div style=\"text-align:center;font-size:11px;color:#d4a0b0;margin:-2px 0 6px\">🔬 识别为 <b>'+results.callType.label+'</b> ('+results.callType.emoji+')</div>':'')+
     humanBanner+(isHuman?'<div style="font-size:12px;color:#d4a0b0;margin:4px 0 8px;text-align:center">👇 这声音最像小猫的…</div>':'')+
     results.map(function(r){return'<div class="result-item"><div class="result-emoji">'+r.emoji+'</div>'+
@@ -1015,7 +1032,7 @@ function analyzeBreed(){
           var top10=items.slice(0,10);
           var isCat=top10.some(function(x){return catIds[x.idx]});
           if(!isCat){
-            $('breedResults').innerHTML='<div style="text-align:center;padding:14px"><div style="font-size:40px;margin-bottom:6px">🤔</div><div style="font-size:15px;font-weight:700;color:#ff8c52">没有识别到猫咪</div><div style="font-size:12px;color:#c9a0b0;margin-top:4px">请拍一张清晰的猫咪正面照片~</div></div>';return
+            $('breedResults').innerHTML='<div style="text-align:center;padding:14px"><div style="font-size:40px;margin-bottom:6px">🔍</div><div style="font-size:15px;font-weight:700;color:#ff8c52">判断：这不是猫咪的照片</div><div style="font-size:12px;color:#c9a0b0;margin-top:4px">本地模型未识别到任何猫类特征</div><div style="font-size:11px;color:#c9a0b0;margin-top:6px">💡 请拍猫咪的正面清晰照片，或填入API Key使用AI识别</div></div>';return
           }
           var imgnetResults=top10.filter(function(x){return catIds[x.idx]}).map(function(x){return{name:catLabels[x.idx]||'猫',prob:Math.round(x.prob*100)}});
           var allBreeds=matchBreeds(img,imgnetResults,items);
