@@ -561,38 +561,14 @@ function loadTF(cb){if(tfReady){cb();return}
     s.onload=function(){tfReady=true;cb()};s.onerror=tryNext;document.head.appendChild(s)
   }
   tryNext()}
-// Base64 to ArrayBuffer (for in-memory model loading)
-function _b64ToBuf(b64){
-  var bin=atob(b64),len=bin.length,bytes=new Uint8Array(len);
-  for(var i=0;i<len;i++)bytes[i]=bin.charCodeAt(i);
-  return bytes.buffer
-}
-// Load model from APK-injected memory data - zero network!
-function loadModelFromMemory(cb){
-  try{
-    var modelJson=JSON.parse(window.__CAT_MODEL_JSON_STR__);
-    var weightData=_b64ToBuf(window.__CAT_WEIGHTS_B64__);
-    tf.loadGraphModel(tf.io.fromMemory({
-      modelTopology:modelJson.modelTopology,
-      weightSpecs:modelJson.weightsManifest,
-      weightData:weightData
-    })).then(function(m){
-      mNet=m;$('breedResults').innerHTML='';cb(m)
-    }).catch(function(e){
-      console.error('fromMemory failed:',e);
-      $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">模型加载失败<br><span style="font-size:12px">请重启App再试试~</span></div>'
-    })
-  }catch(e){console.error('Memory load error:',e)}
-}
+// Load model — in APK: intercepted URL serves from assets (zero network)
+//             — in browser: CDN fallback
 function loadModel(cb){if(mNet){cb(mNet);return}
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在学习识别猫咪品种…</div>'
-  // Primary: use model data injected by APK (zero network!)
-  if(window.__CAT_MODEL_JSON_STR__ && window.__CAT_WEIGHTS_B64__){
-    loadModelFromMemory(cb);return
-  }
-  // Browser fallback: download model from CDN
-  tf.loadGraphModel('https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">⚠️ 网络连接失败<br><span style="font-size:12px">请检查WiFi或流量，换个网络再试试~</span></div>';console.error(e)})}
-
+  tf.loadGraphModel('https://appassets.androidplatform.net/model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e1){
+    console.warn('Intercepted load failed, trying CDN:',e1);
+    $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">下载识别模型(~5MB)</div>'
+    tf.loadGraphModel('https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e2){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">⚠️ 下载失败<br><span style="font-size:12px">请检查WiFi或流量，换个网络再试试~</span></div>';console.error(e2)})})}
 function analyzeBreed(){
   var img=$('photoPreview').querySelector('img');if(!img)return
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在识别…</div>'
