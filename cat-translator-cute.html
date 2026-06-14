@@ -577,34 +577,23 @@ function initDSKey(){
 async function deepseekAnalyze(features,localResults,apiKey){
   var durMs=Math.round(features.n/features.sr*1000);
   var contourLabel=features.contour>0.06?'上升':(features.contour<-0.06?'下降':'平稳');
+  var top3Txt=localResults.map(function(r){return '- '+r.emoji+' '+r.name+' '+r.probability+'%: '+r.desc}).join('\n');
 
-  // Build a concise, data-rich prompt for emotion classification
-  var prompt='你是猫咪声学行为专家。请根据以下声学参数判断猫咪的情绪:
-'+
-    '声学参数:
-'+
-    '- 基频(F0): '+Math.round(features.peakFreq)+' Hz
-'+
-    '- 时长: '+durMs+' ms
-'+
-    '- 过零率: '+Math.round(features.zcr*100)+'%
-'+
-    '- 语调轮廓: '+contourLabel+' (值:'+Math.round(features.contour*100)+'%)
-'+
-    '- 周期性谐波比: '+Math.round(features.loRatio*100)+'%
-'+
-    '- 能量(RMS): '+(Math.round(features.rms*10000)/10000).toFixed(4)+'
-'+
-    '- 叫声类型: '+localResults.callType.label+'
-'+
-    '
+  var prompt=`你是猫咪声学行为专家。请根据以下声学参数判断猫咪的情绪:
+声学参数:
+- 基频(F0): ${Math.round(features.peakFreq)} Hz
+- 时长: ${durMs} ms
+- 过零率: ${Math.round(features.zcr*100)}%
+- 语调轮廓: ${contourLabel} (值:${Math.round(features.contour*100)}%)
+- 周期性谐波比: ${Math.round(features.loRatio*100)}%
+- 能量(RMS): ${Math.round(features.rms*10000)/10000}
+- 叫声类型: ${localResults.callType.label}
+
 本地声学分析结果:
-'+
-    localResults.map(function(r){return '- '+r.emoji+' '+r.name+' '+r.probability+'%: '+r.desc}).join('
-')+
-    '
+${top3Txt}
+
 请给出JSON(不要其他文字):
-{"emotion":"最可能的1-2个词","feeling":"猫咪想说什么(一句话,中文,适合小朋友)","why":"为什么这样判断(简短)","confidence":0-100}';
+{"emotion":"最可能的1-2个词","feeling":"猫咪想说什么(一句话,中文,适合小朋友)","why":"为什么这样判断(简短)","confidence":0-100}`;
 
   var resp=await fetch('https://api.deepseek.com/v1/chat/completions',{
     method:'POST',
@@ -626,7 +615,7 @@ async function deepseekAnalyze(features,localResults,apiKey){
   var content=data.choices[0].message.content;
 
   // Parse JSON from response (DeepSeek sometimes wraps in code blocks)
-  var jsonMatch=content.match(/{[^}]*}/);
+  var jsonMatch=content.match(/\{[^}]*\}/);
   if(!jsonMatch) throw new Error('无法解析AI回复');
   return JSON.parse(jsonMatch[0]);
 }
