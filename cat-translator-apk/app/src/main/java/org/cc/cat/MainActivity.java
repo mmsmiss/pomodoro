@@ -14,12 +14,12 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.PermissionRequest;
 import android.webkit.ConsoleMessage;
+import android.util.Base64;
 import android.util.Log;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -69,27 +69,6 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                String url = request.getUrl().toString();
-                // Intercept local asset URLs so fetch() can load bundled model files
-                // WebView's fetch() blocks file:// URLs, so we use https://appassets.androidplatform.net/
-                if (url.startsWith("https://appassets.androidplatform.net/")) {
-                    String assetPath = url.substring("https://appassets.androidplatform.net/".length());
-                    try {
-                        InputStream is = getAssets().open(assetPath);
-                        String mime = assetPath.endsWith(".json") ? "application/json"
-                                   : assetPath.endsWith(".bin") ? "application/octet-stream"
-                                   : "text/plain";
-                        Log.d(TAG, "Serving asset: " + assetPath + " (" + mime + ")");
-                        return new WebResourceResponse(mime, "UTF-8", is);
-                    } catch (IOException e) {
-                        Log.w(TAG, "Asset not found: " + assetPath);
-                    }
-                }
-                return super.shouldInterceptRequest(view, request);
-            }
-
-            @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 Log.e(TAG, "WebView error: " + errorCode + " - " + description);
             }
@@ -97,6 +76,8 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 Log.d(TAG, "Page loaded: " + url);
+                // Inject model files directly into JS memory — no network needed!
+                injectModelData();
             }
         });
 
@@ -154,6 +135,94 @@ public class MainActivity extends Activity {
 
         // Request permissions
         requestRuntimePermissions();
+    }
+
+    /**
+     * Read asset file as String (UTF-8).
+     */
+    private String readAssetAsString(String path) throws IOException {
+        InputStream is = getAssets().open(path);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
+        is.close();
+        return bos.toString("UTF-8");
+    }
+
+    /**
+     * Read asset file as raw bytes.
+     */
+    private byte[] readAssetBytes(String path) throws IOException {
+        InputStream is = getAssets().open(path);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
+        is.close();
+        return bos.toByteArray();
+    }
+
+    /**
+     * Read model files from assets/model/, combine weight shards,
+     * base64 encode everything, and inject into JavaScript globals.
+     * The JS side uses tf.io.fromMemory() — zero network access.
+     */
+    private void injectModelData() {
+        try {
+            // 1. Read model.json
+            String modelJson = readAssetAsString("model/model.json");
+            Log.d(TAG, "Model JSON read: " + modelJson.length() + " chars");
+
+            // 2. Find all .bin shard files in assets/model/
+            String[] assetFiles = getAssets().list("model");
+            java.util.List<String> shards = new java.util.ArrayList<>();
+            for (String f : assetFiles) {
+                if (f.endsWith(".bin")) {
+                    shards.add(f);
+                }
+            }
+            java.util.Collections.sort(shards);
+            Log.d(TAG, "Found " + shards.size() + " weight shard(s): " + shards);
+
+            // 3. Concatenate all shards into one byte array
+            ByteArrayOutputStream weightStream = new ByteArrayOutputStream();
+            for (String shard : shards) {
+                byte[] data = readAssetBytes("model/" + shard);
+                weightStream.write(data);
+                Log.d(TAG, "  Shard " + shard + ": " + (data.length / 1024) + " KB");
+            }
+            byte[] allWeights = weightStream.toByteArray();
+
+            // 4. Base64 encode the weight bytes
+            String weightsB64 = Base64.encodeToString(allWeights, Base64.NO_WRAP);
+            Log.d(TAG, "Weights total: " + (allWeights.length / 1024) + " KB, base64: " + (weightsB64.length() / 1024) + " KB");
+
+            // 5. Escape modelJson for safe injection into JS string
+            //    modelJson is valid JSON, but we need to escape backticks and ${} for template literals
+            String safeJson = modelJson
+                .replace("\\", "\\\\")
+                .replace("`", "\\`")
+                .replace("${", "\\${");
+
+            // 6. Inject into JavaScript (using template literal for the JSON to avoid quote hell)
+            String js = "window.__CAT_MODEL_JSON_STR__=`" + safeJson + "`;" +
+                        "window.__CAT_WEIGHTS_B64__='" + weightsB64 + "';" +
+                        "console.log('Model injected: json='+window.__CAT_MODEL_JSON_STR__.length+' weightsB64='+window.__CAT_WEIGHTS_B64__.length)";
+
+            webView.evaluateJavascript(js, new ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String value) {
+                    Log.d(TAG, "Model injection complete: " + value);
+                }
+            });
+
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to inject model data: " + e.getMessage());
+            // Model not injected — JS will fall back to CDN
+            webView.evaluateJavascript(
+                "console.warn('Model injection failed, will try CDN fallback')", null);
+        }
     }
 
     private void requestRuntimePermissions() {
