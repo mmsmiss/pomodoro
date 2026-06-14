@@ -21,8 +21,12 @@ import android.webkit.WebViewClient;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.webkit.WebViewAssetLoader;
-import androidx.webkit.WebViewClientCompat;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public class MainActivity extends Activity {
 
@@ -46,6 +50,11 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(0xffffb6c1);
         getWindow().setNavigationBarColor(0xffffd4de);
 
+        // ── Copy model files to internal storage (background thread) ──
+        // WebView XHR can read file:// URLs, so JS loads model data
+        // via XMLHttpRequest — no fetch(), no shouldInterceptRequest.
+        new Thread(this::prepareModelFiles, "ModelPrep").start();
+
         webView = new WebView(this);
         setContentView(webView);
 
@@ -57,34 +66,13 @@ public class MainActivity extends Activity {
         ws.setMediaPlaybackRequiresUserGesture(false);
         ws.setDatabaseEnabled(true);
         ws.setGeolocationEnabled(false);
+        ws.setAllowFileAccessFromFileURLs(true); // critical for XHR file://
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
 
-        // WebViewAssetLoader: official AndroidX API for serving assets
-        // Maps https://appassets.androidplatform.net/assets/ → app assets/
-        // Maps https://appassets.androidplatform.net/model/  → app assets/model/
-        // Intercepts at the Chromium engine level — fetch(), XHR, <script>, <img> ALL work
-        final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
-            .setDomain("appassets.androidplatform.net")
-            .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
-            .addPathHandler("/model/",  new WebViewAssetLoader.AssetsPathHandler(this))
-            .build();
-
-        webView.setWebViewClient(new WebViewClientCompat() {
-            @Override
-            public WebResourceResponse shouldInterceptRequest(WebView view,
-                    android.webkit.WebResourceRequest request) {
-                return assetLoader.shouldInterceptRequest(request);
-            }
-
-            @SuppressWarnings("deprecation")
-            @Override
-            public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
-                return assetLoader.shouldInterceptRequest(url);
-            }
-
+        webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 Log.d(TAG, "Page loaded: " + url);
@@ -136,14 +124,84 @@ public class MainActivity extends Activity {
         webView.setVerticalScrollBarEnabled(false);
         webView.setHorizontalScrollBarEnabled(false);
 
-        // CRITICAL: load the page via WebViewAssetLoader URL, NOT file://
-        // This ensures the page origin is https://, so fetch() and <script src="">
-        // both resolve through the AssetLoader.
-        webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
-        Log.d(TAG, "Loading via AssetLoader");
+        webView.loadUrl("file:///android_asset/index.html");
+        Log.d(TAG, "Loading HTML");
 
         requestRuntimePermissions();
     }
+
+    // ── Copy model assets to internal storage ────────────────────────────
+    // JavaScript loads them via XMLHttpRequest to file:// URLs.
+    // XHR from file:// origin works in WebView with allowFileAccess=true.
+
+    private void prepareModelFiles() {
+        try {
+            File modelDir = new File(getFilesDir(), "model");
+            modelDir.mkdirs();
+
+            // Copy model.json
+            String modelJson = readAssetString("model/model.json");
+            writeFile(new File(modelDir, "model.json"), modelJson.getBytes("UTF-8"));
+            Log.d(TAG, "Copied model.json (" + modelJson.length() + " chars)");
+
+            // Copy & concatenate .bin shards into a single weights.bin
+            String[] files = getAssets().list("model");
+            java.util.List<String> shards = new java.util.ArrayList<>();
+            if (files != null) {
+                for (String f : files) {
+                    if (f.endsWith(".bin")) shards.add(f);
+                }
+            }
+            java.util.Collections.sort(shards);
+
+            File weightsFile = new File(modelDir, "weights.bin");
+            OutputStream os = new FileOutputStream(weightsFile);
+            long total = 0;
+            for (String shard : shards) {
+                byte[] data = readAssetBytes("model/" + shard);
+                os.write(data);
+                total += data.length;
+                Log.d(TAG, "  " + shard + ": " + (data.length / 1024) + " KB");
+            }
+            os.close();
+            Log.d(TAG, "Copied weights.bin (" + (total / 1024 / 1024) + " MB, " + shards.size() + " shards)");
+
+            // Notify JS that model is ready
+            final String modelDirPath = modelDir.getAbsolutePath();
+            webView.post(() -> webView.evaluateJavascript(
+                "window.__MODEL_DIR__='" + modelDirPath.replace("'", "\\'") + "/';" +
+                "console.log('Model dir: '+window.__MODEL_DIR__)",
+                v -> Log.d(TAG, "Model dir injected: " + v)
+            ));
+
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to prepare model files: " + e.getMessage(), e);
+        }
+    }
+
+    // ── Asset helpers ─────────────────────────────────────────────────────
+
+    private String readAssetString(String path) throws IOException {
+        return new String(readAssetBytes(path), "UTF-8");
+    }
+
+    private byte[] readAssetBytes(String path) throws IOException {
+        InputStream is = getAssets().open(path);
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
+        is.close();
+        return bos.toByteArray();
+    }
+
+    private void writeFile(File file, byte[] data) throws IOException {
+        FileOutputStream os = new FileOutputStream(file);
+        os.write(data);
+        os.close();
+    }
+
+    // ── Permissions & lifecycle ───────────────────────────────────────────
 
     private void requestRuntimePermissions() {
         if (Build.VERSION.SDK_INT < 23) return;

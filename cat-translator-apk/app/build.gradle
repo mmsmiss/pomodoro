@@ -10,8 +10,8 @@ android {
         applicationId "org.cc.cat"
         minSdk 24
         targetSdk 34
-        versionCode 16
-        versionName "3.4"
+        versionCode 17
+        versionName "3.5"
     }
 
     buildTypes {
@@ -28,5 +28,4 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.webkit:webkit:1.8.0'
 }
