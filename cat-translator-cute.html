@@ -318,8 +318,8 @@ input[type=file]{display:none}
 
 <script>
 // ============================================================
-//  小猫在说什么 v3 cute · 引擎不变 · UI 超可爱
-//  声学模型: Schötz 2024 (969 喵叫, 50 只猫)
+//  小猫在说什么 v4 · 研究驱动声学模型
+//  情绪分类: Schötz Meowsic 2019/2024 (780→969 喵叫, 40→50 只猫)
 //  人声检测: F0 70-550Hz + 排除咕噜/嘶嘶
 //  情绪分类: 指数评分 + softmax + 语调 + 谐波
 // ============================================================
@@ -454,8 +454,30 @@ function findPeak(arr,sr){
   return bestC>0?sr/bestL:0
 }
 
+// ── Call-type pre-classification ────────────────────────────────────
+// Based on Tavernier et al. (2020) 21-call taxonomy, collapsed to 4 types
+// Uses only existing features: ZCR, F0, loRatio (zero extra compute)
+function classifyCallType(f){
+  // Purr: very low ZCR + high periodicity (loRatio) + low F0
+  if(f.zcr<0.06 && f.loRatio>0.30 && f.peakFreq<120) return {type:'purr',label:'咕噜声',emoji:'😌'};
+  // Hiss: very high ZCR + high F0 + noise-like (no harmonic structure)
+  if(f.zcr>0.30 && f.peakFreq>1200) return {type:'hiss',label:'嘶嘶声',emoji:'😾'};
+  // Chirp/trill: moderate ZCR + very short duration expected, medium-high F0
+  // (Schwartz 2025 cluster 2; we infer from ZCR+F0 pattern alone)
+  if(f.zcr>0.13 && f.zcr<0.25 && f.peakFreq>550 && f.peakFreq<1800)
+    return {type:'chirp',label:'唧唧声',emoji:'🐤'};
+  // Meow: everything else — the default cat vocalization
+  return {type:'meow',label:'喵叫声',emoji:'🐱'};
+}
+
 // Schötz-calibrated classify (exponential + softmax)
 function classify(f,dur){
+  // ── Schötz 2024 calibrated exponential + softmax ──
+  //     key change v4: contour weight 5.0→7.0 (Schötz Meowsic consensus)
+
+  // Acoustic sub-label from Tavernier call-type pre-classifier
+  var callType=classifyCallType(f);
+
   var results=EMOTIONS.map(function(e){
     var sc=0,w=0;
     var fmid=(e.f0Lo+e.f0Hi)/2,fh=(e.f0Hi-e.f0Lo)/2;sc+=4.0*Math.pow(0.45,Math.abs(f.peakFreq-fmid)/Math.max(fh,1));w+=4.0
@@ -466,19 +488,38 @@ function classify(f,dur){
     var emid=(ev[0]+ev[1])/2,eh=(ev[1]-ev[0])/2+0.01;sc+=1.5*Math.pow(0.5,Math.abs(f.rms-emid)/eh);w+=1.5
     if(e.harm){if(f.zcr<0.16)sc+=4.0;else if(f.zcr<0.26)sc+=2.0;else if(f.zcr<0.35)sc+=0.5;else sc-=2.5}
     else{if(f.zcr>0.38)sc+=4.0;else if(f.zcr>0.28)sc+=2.0;else sc-=3.5}w+=4.0
-    if(e.contour==='rising'&&f.contour>0.07)sc+=5.0;else if(e.contour==='rising'&&f.contour>0.03)sc+=2.5
-    else if(e.contour==='falling'&&f.contour<-0.07)sc+=5.0;else if(e.contour==='falling'&&f.contour<-0.03)sc+=2.5
-    else if(e.contour==='flat'&&Math.abs(f.contour)<=0.03)sc+=5.0;else if(Math.abs(f.contour)<=0.06)sc+=2.0;else sc-=2.0;w+=5.0
+
+    // ── F0 contour: strongest discriminator (7.0, up from 5.0) ──
+    // Schötz Meowsic: rising=positive/affiliative, falling=negative/stress
+    if(e.contour==='rising'&&f.contour>0.07)sc+=7.0;else if(e.contour==='rising'&&f.contour>0.03)sc+=4.0
+    else if(e.contour==='falling'&&f.contour<-0.07)sc+=7.0;else if(e.contour==='falling'&&f.contour<-0.03)sc+=4.0
+    else if(e.contour==='flat'&&Math.abs(f.contour)<=0.03)sc+=7.0;else if(Math.abs(f.contour)<=0.06)sc+=3.0;else sc-=2.0;w+=7.0
+
     if(e.purr){sc+=3.5*f.loRatio;w+=3.5}if(e.rep&&dur<0.7)sc+=2.0;w+=2.0
+
+    // ── Valence boost (JVB 2022: pleasant contexts have ~10% higher F0) ──
+    // For rising-contour (positive) emotions, measured F0 being higher than median
+    // is consistent with a pleasant-state signal — give a mild bonus.
+    if(e.contour==='rising' && f.peakFreq>fmid*0.92) sc+=1.5;
+    if(e.contour==='falling' && f.peakFreq<fmid*1.08) sc+=1.0;
+    if(e.contour==='rising') w+=1.5;
+    // For falling-contour (negative) emotions, also check duration signal:
+    // negative vocalisations are longer (Schötz 2024 carrier-context effect)
+    if(e.contour==='falling' && dur>1.2) sc+=1.0;
+    if(e.contour==='falling') w+=1.0;
+
     return{eid:e.id,emoji:e.emoji,name:e.name,desc:e.desc,color:e.color,rawScore:Math.max(0,w>0?sc/w:0)};
   });
   results.sort(function(a,b){return b.rawScore-a.rawScore});
   var top3=results.slice(0,3),totalExp=0;
   top3.forEach(function(r){totalExp+=Math.exp(r.rawScore*4)});
   if(totalExp<0.001)totalExp=3;
-  return top3.map(function(r){return{eid:r.eid,emoji:r.emoji,name:r.name,desc:r.desc,color:r.color,probability:Math.min(95,Math.max(2,Math.round(Math.exp(r.rawScore*4)/totalExp*100)))}});
-}
 
+  var probs=top3.map(function(r){return{eid:r.eid,emoji:r.emoji,name:r.name,desc:r.desc,color:r.color,probability:Math.min(95,Math.max(2,Math.round(Math.exp(r.rawScore*4)/totalExp*100)))}});
+  // Attach call-type diagnostic label (shown in UI, not used for scoring)
+  probs.callType=callType;
+  return probs;
+}
 // Human detection
 function detectHuman(audioBuf,f,dur){
   var s=audioBuf.getChannelData(0),n=s.length,sr=audioBuf.sampleRate,score=0,ind=[],det={};
@@ -532,6 +573,7 @@ function showResults(results,humanCheck,rawFeatures){
   }else if(humanCheck){humanBanner='<div class="animal-confirm">✅ 这是小猫咪的声音哦~</div>';}
 
   area.innerHTML='<div style="margin-top:8px;font-size:14px;color:#d4a0b0;font-weight:700;text-align:center">📊 小猫想要告诉你…</div>'+
+    (results.callType?'<div style=\"text-align:center;font-size:11px;color:#d4a0b0;margin:-2px 0 6px\">🔬 识别为 <b>'+results.callType.label+'</b> ('+results.callType.emoji+')</div>':'')+
     humanBanner+(isHuman?'<div style="font-size:12px;color:#d4a0b0;margin:4px 0 8px;text-align:center">👇 这声音最像小猫的…</div>':'')+
     results.map(function(r){return'<div class="result-item"><div class="result-emoji">'+r.emoji+'</div>'+
       '<div class="result-info"><div class="result-name">'+r.name+'</div><div class="result-desc">'+r.desc+'</div>'+
