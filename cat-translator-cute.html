@@ -942,59 +942,16 @@ function loadTF(cb){if(tfReady){cb();return}
     s.onload=function(){tfReady=true;cb()};s.onerror=tryNext;document.head.appendChild(s)
   }
   tryNext()}
-// ── Model loading via Java bridge (zero fetch, zero network) ──
-// Model data (topology, weights manifest, weight bytes) is preloaded
-// by MainActivity and delivered chunk-by-chunk via ModelBridge.
-function _b64ToBuf(b64){
-  var bin=atob(b64),len=bin.length,bytes=new Uint8Array(len);
-  for(var i=0;i<len;i++)bytes[i]=bin.charCodeAt(i);
-  return bytes.buffer
-}
-function _loadWeightsChunked(totalLen,cb,progCb){
-  var chunks=[],loaded=0;
-  function next(pos){
-    if(pos>=totalLen){
-      // Concatenate all chunks
-      var total=new Uint8Array(totalLen),off=0;
-      for(var i=0;i<chunks.length;i++){total.set(chunks[i],off);off+=chunks[i].length}
-      cb(total.buffer);return
-    }
-    if(progCb) progCb(Math.round(pos/totalLen*100));
-    // ModelBridge.getWeightsChunk() returns base64 via Java bridge (synchronous)
-    var b64=ModelBridge.getWeightsChunk(pos);
-    if(!b64){cb(null);return} // error
-    var buf=_b64ToBuf(b64);
-    chunks.push(new Uint8Array(buf));
-    loaded+=buf.byteLength;
-    // Use setTimeout to avoid blocking the bridge
-    setTimeout(function(){next(loaded)},1);
-  }
-  next(0)
-}
+// ── Model loading via WebViewAssetLoader (zero network) ────────────────
+// Page is served from https://appassets.androidplatform.net/assets/index.html
+// Model files are at /model/model.json which maps to assets/model/
+// This is the official AndroidX approach — fetch() intercepts at Chromium level
 function loadModel(cb){if(mNet){cb(mNet);return}
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在加载识别模型…</div>'
-  // Check bridge; if model still loading on background thread, wait a bit
-  function doLoad(){
-  if(typeof ModelBridge==='undefined'||!ModelBridge.isReady()){
-    setTimeout(doLoad, 300); return // retry in 300ms
-  }
-  try{
-    var topo=JSON.parse(ModelBridge.getTopologyJson());
-    var wm=JSON.parse(ModelBridge.getWeightsManifest());
-    var wlen=ModelBridge.getWeightsTotalLen();
-    if(!topo||!wm||!wlen){throw new Error('模型元数据不完整')}
-  }catch(e){
-    $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型元数据错误<br><span style="font-size:12px">请重启App</span></div>';return
-  }
-  _loadWeightsChunked(wlen,function(wbuf){
-    if(!wbuf){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型数据读取失败<br><span style="font-size:12px">请重启App</span></div>';return}
-    tf.loadGraphModel(tf.io.fromMemory({modelTopology:topo,weightSpecs:wm,weightData:wbuf}))
-      .then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''})
-      .catch(function(e){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型解析失败<br><span style="font-size:12px">请重启App</span></div>';console.error(e)})
-  },function(pct){
-    $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在加载识别模型…'+pct+'%</div>'
+  tf.loadGraphModel('/model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e){
+    console.error('Model load error:',e.message||e);
+    $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型加载失败<br><span style="font-size:12px">请完全退出App后重试</span></div>'
   })}
-  doLoad()} // kick off the load
 function analyzeBreed(){
   var img=$('photoPreview').querySelector('img');if(!img)return
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在识别猫咪品种…</div>'
