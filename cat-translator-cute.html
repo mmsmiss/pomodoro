@@ -941,16 +941,14 @@ function loadTF(cb){if(tfReady){cb();return}
     s.onload=function(){tfReady=true;cb()};s.onerror=tryNext;document.head.appendChild(s)
   }
   tryNext()}
-// Load model — in APK: embedded HTTP server serves model from assets (zero network)
-//             — in browser: CDN fallback
+// Load model — assets served by WebViewAssetLoader (zero network)
 function loadModel(cb){if(mNet){cb(mNet);return}
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在学习识别猫咪品种…</div>'
-  // Primary: fetch from embedded local HTTP server (real TCP, 100% reliable)
-  var port=(typeof ModelServer!=='undefined'?ModelServer.getPort():0);var modelUrl=port?'http://127.0.0.1:'+port+'/model/model.json':null;if(!modelUrl){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型服务未启动<br><span style="font-size:12px">请完全退出App后重试</span></div>';return}
-  tf.loadGraphModel(modelUrl).then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e1){
-    console.warn('Local server load failed, trying CDN:',e1.message||e1);
-    // Browser fallback only (no embedded server)
-    tf.loadGraphModel('https://storage.googleapis.com/tfhub-tfjs-modules/google/imagenet/mobilenet_v2_140_224/classification/3/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e2){$('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型加载失败<br><span style="font-size:12px">嵌入式服务未启动，请完全退出App重试</span></div>';console.error(e2)})})}
+  // Relative URL → resolved by WebViewAssetLoader from assets/model/
+  tf.loadGraphModel('./model/model.json').then(function(m){mNet=m;cb(m);$('breedResults').innerHTML=''}).catch(function(e1){
+    console.warn('Asset load failed:',e1.message||e1);
+    $('breedResults').innerHTML='<div style="text-align:center;padding:12px;color:#ff6b6b">🤖 模型加载失败<br><span style="font-size:12px">请完全退出App后重试</span></div>'
+  })}
 function analyzeBreed(){
   var img=$('photoPreview').querySelector('img');if(!img)return
   $('breedResults').innerHTML='<div class="spinner"></div><div style="text-align:center;font-size:13px;color:#d4a0b0">正在识别猫咪品种…</div>'
